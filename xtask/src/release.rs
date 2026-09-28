@@ -30,7 +30,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Files from the workspace root shipped next to the Windows and Linux
 /// executable.
-const DOCUMENTS: [&str; 2] = ["LICENSE", "README.md"];
+pub const DOCUMENTS: [&str; 2] = ["LICENSE", "README.md"];
 
 /// The file extension of an OS's release archive.
 pub fn archive_extension(os: &str) -> Result<&'static str> {

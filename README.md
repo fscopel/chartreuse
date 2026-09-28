@@ -285,8 +285,9 @@ Everything beyond `cargo build` is a `cargo xtask` command, and CI runs nothing 
 | `cargo xtask bundle` | Signed `target/debug/Chartreuse Dev.app` (macOS) |
 | `cargo xtask run` | `bundle`, then launch it through LaunchServices. `--fake` uses the synthetic platform backend |
 | `cargo xtask dev-cert` | Once per machine (macOS): create the self-signed development signing identity that `bundle` uses when `CHARTREUSE_SIGN_IDENTITY` is unset |
-| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). Windows (`.zip`): the executable, with the app icon embedded, signed with `signtool` and verified; see [Windows signing](#windows-signing). Linux (`.tar.gz`): the executable with the app icon. Both with `LICENSE` and `README.md`. `--allow-ad-hoc`: when no signing identity (macOS) or certificate (Windows) is set, sign the app ad-hoc (macOS) and skip signing the disk image and notarization, or sign nothing (Windows); the names end in `-unsigned`. |
+| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). Windows: the executable, with the app icon embedded, signed with `signtool` and verified, in a `.zip`, and a per-user installer (`-setup.exe`, built with [Inno Setup 6](https://jrsoftware.org/isinfo.php)) signed the same way; see [Windows](#from-a-developer-machine-windows). Linux (`.tar.gz`): the executable with the app icon. Both archives hold `LICENSE` and `README.md`. `--allow-ad-hoc`: when no signing identity (macOS) or certificate (Windows) is set, sign the app ad-hoc (macOS) and skip signing the disk image and notarization, or sign nothing (Windows); the names end in `-unsigned`. |
 | `cargo xtask ci-keychain` | CI (macOS): import the Developer ID identity from `CHARTREUSE_SIGN_P12_BASE64` (a base64-encoded `.p12`) and `CHARTREUSE_SIGN_P12_PASSWORD` into a temporary keychain that `codesign` uses without prompting, and print it. `--skip-if-unset` succeeds without doing anything when `CHARTREUSE_SIGN_P12_BASE64` is unset. Remove the keychain afterwards with the `security delete-keychain` command it prints (GitHub-hosted runners are discarded anyway). |
+| `cargo xtask ci-install-tools` | CI: install the packaging tools `release` needs that the runner lacks: on Windows, Inno Setup 6 with Chocolatey (GitHub's Windows Server 2025 image no longer has it). Does nothing on macOS, or when the tools are installed. |
 | `cargo xtask upload-release <tag>` | Attach every file in `target/dist/` to the GitHub release `<tag>` with the [GitHub CLI](https://cli.github.com) (`gh`), replacing assets of the same name. The tag must be `v<version>` for the `Cargo.toml` version, and every file must be named for that version. Needs `GH_TOKEN` (or `gh auth login`), and `GH_REPO=owner/repo` outside a git checkout. |
 
 The build flavor (development or release: bundle identifier, name, accent color) is
@@ -312,10 +313,11 @@ GitHub Actions builds every platform and attaches the archives to the release
      exist it is `Chartreuse-<version>-macos-universal-unsigned.dmg`, **ad-hoc
      signed** and not notarized: Gatekeeper blocks it on first launch; allow it under
      *System Settings → Privacy & Security → Open Anyway*.
-   - `Chartreuse-<version>-windows-x86_64.zip`, signed; until the
-     [signing secrets](#release-signing-secrets) exist,
-     `Chartreuse-<version>-windows-x86_64-unsigned.zip`, which SmartScreen warns about
-     on first run
+   - `Chartreuse-<version>-windows-x86_64-setup.exe`, the installer, and
+     `Chartreuse-<version>-windows-x86_64.zip`, both signed; until the
+     [signing secrets](#release-signing-secrets) exist they are
+     `…-windows-x86_64-unsigned-setup.exe` and `…-windows-x86_64-unsigned.zip`,
+     which SmartScreen warns about on first run (*More info → Run anyway*)
    - `Chartreuse-<version>-linux-x86_64.tar.gz`
 
 A tag that does not match the `Cargo.toml` version fails the upload, naming both.
@@ -342,7 +344,7 @@ job rather than publishing an app Gatekeeper rejects. The Windows job signs once
 | `CHARTREUSE_NOTARY_KEY` | The contents of an App Store Connect API key file (`AuthKey_<key ID>.p8`: App Store Connect → *Users and Access → Integrations → App Store Connect API*, role *Developer*) |
 | `CHARTREUSE_NOTARY_KEY_ID` | That key's ID |
 | `CHARTREUSE_NOTARY_ISSUER` | The issuer ID shown above the list of keys |
-| `CHARTREUSE_WINDOWS_SIGN_PFX_BASE64` | A code signing certificate and its private key as a `.pfx`, base64-encoded (`base64 -w0 certificate.pfx`; PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("certificate.pfx"))`). See [Windows signing](#windows-signing) |
+| `CHARTREUSE_WINDOWS_SIGN_PFX_BASE64` | A code signing certificate and its private key as a `.pfx`, base64-encoded (`base64 -w0 certificate.pfx`; PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("certificate.pfx"))`). See [the Windows release](#from-a-developer-machine-windows) |
 | `CHARTREUSE_WINDOWS_SIGN_PFX_PASSWORD` | That `.pfx`'s password |
 | `CHARTREUSE_WINDOWS_SIGN_TIMESTAMP_URL` | Optional: an RFC 3161 timestamp server, if not DigiCert's `http://timestamp.digicert.com` |
 
@@ -393,12 +395,24 @@ from an ad-hoc signed app, unsigned and not notarized, as
 `Chartreuse-<version>-macos-universal-unsigned.dmg`: useful for testing the packaging,
 not for distribution.
 
-### Windows signing
+### From a developer machine (Windows)
 
-`cargo xtask release` on Windows signs the executable with `signtool` from the newest
-installed Windows SDK (or the one on `PATH`), using a SHA-256 digest and an RFC 3161
-timestamp, then checks it with `signtool verify /pa` (a trusted chain, so a
-self-signed test certificate fails the release). It takes the certificate from one of:
+Install the MSVC toolchain's Windows SDK (it has `rc.exe`, which embeds the app icon,
+and `signtool`) and [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+(`winget install JRSoftware.InnoSetup`), then run `cargo xtask release`. It writes
+`target/dist/Chartreuse-<version>-windows-x86_64.zip` and
+`Chartreuse-<version>-windows-x86_64-setup.exe`, the installer from
+[`packaging/windows/chartreuse.iss`](packaging/windows/chartreuse.iss): a per-user
+install (no administrator rights) into `%LOCALAPPDATA%\Programs\Chartreuse`, with a
+Start menu shortcut and an uninstaller listed under *Settings → Apps*. Running a newer
+installer upgrades in place, closing the running Chartreuse first; uninstalling keeps
+the settings but takes Chartreuse off the programs Windows starts at login.
+
+The executable, the installer, and the uninstaller inside it are signed with
+`signtool` from the newest installed Windows SDK (or the one on `PATH`), using a
+SHA-256 digest and an RFC 3161 timestamp, and the executable and installer are then
+checked with `signtool verify /pa` (a trusted chain, so a self-signed test
+certificate fails the release). The certificate comes from one of:
 
 - `CHARTREUSE_WINDOWS_SIGN_CERT_SHA1`: the thumbprint of a code signing certificate
   in your personal certificate store (*certmgr.msc → Personal → Certificates →
@@ -423,4 +437,5 @@ fails, naming the variables.
 | `crates/chartreuse-overlay` | Selection overlay canvas programs |
 | `crates/chartreuse-editor` | Editor document model, tools, and canvas |
 | `assets` | Icon sources and generated icons; `assets/macos/Chartreuse.entitlements`, the entitlements every macOS build is signed with (none, deliberately) |
+| `packaging` | What `cargo xtask release` packages with: `windows/chartreuse.iss`, the Inno Setup installer script |
 | `xtask` | Build automation (`cargo xtask`) |

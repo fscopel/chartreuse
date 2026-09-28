@@ -119,7 +119,7 @@ pub fn run_redacted(command: &mut Command, secrets: &[impl AsRef<str>]) -> Resul
 /// `text` with every occurrence of each of `secrets` masked. The longest go
 /// first, so a secret holding another (a password, and the password escaped)
 /// is masked whole.
-fn redact(text: &str, secrets: &[impl AsRef<str>]) -> String {
+pub fn redact(text: &str, secrets: &[impl AsRef<str>]) -> String {
     let mut secrets: Vec<&str> = secrets
         .iter()
         .map(AsRef::as_ref)

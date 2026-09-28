@@ -6,6 +6,7 @@
 mod bundle;
 mod check;
 mod ci_keychain;
+mod ci_tools;
 mod dev_cert;
 mod dmg;
 mod icon;
@@ -50,9 +51,10 @@ Commands:
             thumbprint, or $CHARTREUSE_WINDOWS_SIGN_PFX_BASE64 and
             $CHARTREUSE_WINDOWS_SIGN_PFX_PASSWORD; timestamped by
             $CHARTREUSE_WINDOWS_SIGN_TIMESTAMP_URL, default DigiCert's) and
-            verified; on Linux (.tar.gz) the executable with the app icon
-            (icons/hicolor/<size>x<size>/apps/*.png); both with LICENSE and
-            README.md
+            verified, and a per-user installer (-setup.exe, Inno Setup 6)
+            signed the same way; on Linux (.tar.gz) the executable with the
+            app icon (icons/hicolor/<size>x<size>/apps/*.png); both archives
+            with LICENSE and README.md
             --allow-ad-hoc  macOS: when the identity is unset, sign the app
                             ad-hoc, notarize nothing, and leave the disk image
                             unsigned; Windows: when no certificate is set,
@@ -63,6 +65,9 @@ Commands:
             $CHARTREUSE_SIGN_P12_PASSWORD into a temporary keychain that
             codesign uses without prompting, and print it
             --skip-if-unset  do nothing if $CHARTREUSE_SIGN_P12_BASE64 is unset
+  ci-install-tools
+            CI: install the packaging tools release needs that the runner
+            lacks (Windows: Inno Setup, with Chocolatey)
   upload-release <tag>
             attach every file in target/dist to the GitHub release <tag>
             (v<version>, matching Cargo.toml) with the GitHub CLI, replacing
@@ -88,6 +93,7 @@ fn main() -> ExitCode {
         ["release", "--allow-ad-hoc"] => release::release(true),
         ["ci-keychain"] => ci_keychain::ci_keychain(false),
         ["ci-keychain", "--skip-if-unset"] => ci_keychain::ci_keychain(true),
+        ["ci-install-tools"] => ci_tools::ci_install_tools(),
         ["upload-release", tag] => upload_release::upload_release(tag),
         [] | ["help" | "--help" | "-h"] => {
             print!("{USAGE}");
