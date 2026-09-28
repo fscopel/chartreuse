@@ -12,15 +12,23 @@
 //! none). It shows the value the selected annotations it applies to share
 //! (nothing, if they differ), or else the style for new annotations.
 //!
+//! The stroke width and font size each offer a list of common sizes and a
+//! spinner, whose arrows step the size by one pixel within
+//! [`STROKE_RANGE`] or [`FONT_RANGE`]. The arrows are disabled while the
+//! selected annotations' sizes differ.
+//!
 //! [`Shape::style_fields`]: crate::model::Shape::style_fields
 //!
 //! Its accent (the active tool, the chosen color swatch) is the theme's
 //! primary color; the app's theme sets that to the build flavor's accent.
 
 use std::fmt;
+use std::ops::RangeInclusive;
 
 use chartreuse_core::color::Rgba8;
-use iced::widget::{button, checkbox, pick_list, row, space, text, text_input, tooltip, Row};
+use iced::widget::{
+    button, checkbox, column, pick_list, row, space, text, text_input, tooltip, Row,
+};
 use iced::{Alignment, Background, Border, Element, Theme};
 
 use crate::canvas;
@@ -47,12 +55,22 @@ pub const STROKE_WIDTHS: [f32; 9] = [1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 2
 /// The font sizes on offer, in image pixels.
 pub const FONT_SIZES: [f32; 9] = [12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 96.0];
 
+/// The stroke widths the spinner steps through, in image pixels.
+pub const STROKE_RANGE: RangeInclusive<f32> = 1.0..=100.0;
+
+/// The font sizes the spinner steps through, in image pixels.
+pub const FONT_RANGE: RangeInclusive<f32> = 1.0..=400.0;
+
 const SWATCH: f32 = 18.0;
 const GROUP_SPACING: f32 = 16.0;
 const ITEM_SPACING: f32 = 4.0;
 
 /// The width of the resize tool's fields.
 const RESIZE_FIELD: f32 = 72.0;
+
+/// The size of a spinner arrow button.
+const ARROW_WIDTH: f32 = 20.0;
+const ARROW_HEIGHT: f32 = 14.0;
 
 /// A size in image pixels, as a pick-list entry.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -210,6 +228,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
             .placeholder("Mixed")
             .into(),
         );
+        sizes.push(spinner(width, STROKE_RANGE, Message::StrokeWidth));
     }
     if let Some(size) = shown(panel.font_size) {
         sizes.push(text("Font").into());
@@ -220,6 +239,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
             .placeholder("Mixed")
             .into(),
         );
+        sizes.push(spinner(size, FONT_RANGE, Message::FontSize));
     }
     let sizes = (!sizes.is_empty()).then(|| group(sizes));
 
@@ -376,6 +396,41 @@ fn swatch<'a>(color: Rgba8, chosen: bool) -> Element<'a, Message> {
         .into()
 }
 
+/// Up and down arrows that step `value` by one pixel within `range`, sending
+/// `message` with the new size; disabled where there is no step to take
+/// (see [`stepped`]).
+fn spinner<'a>(
+    value: Option<f32>,
+    range: RangeInclusive<f32>,
+    message: fn(f32) -> Message,
+) -> Element<'a, Message> {
+    let arrow = |label: &'a str, up: bool| {
+        button(text(label).size(9).center())
+            .padding(0)
+            .width(ARROW_WIDTH)
+            .height(ARROW_HEIGHT)
+            .on_press_maybe(stepped(value, up, &range).map(message))
+            .style(button::secondary)
+    };
+    column![arrow("▲", true), arrow("▼", false)]
+        .spacing(2)
+        .into()
+}
+
+/// `value` stepped up or down to the next whole pixel, if that stays within
+/// `range`; `None` if there is no value (the selection's differ) or no step
+/// to take.
+fn stepped(value: Option<f32>, up: bool, range: &RangeInclusive<f32>) -> Option<f32> {
+    let value = value?;
+    if up {
+        let next = (value.floor() + 1.0).min(*range.end());
+        (next > value).then_some(next)
+    } else {
+        let next = (value.ceil() - 1.0).max(*range.start());
+        (next < value).then_some(next)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use iced::keyboard::{self, key::Named};
@@ -491,5 +546,17 @@ mod tests {
                 blur: Control::Hidden,
             }
         );
+    }
+
+    #[test]
+    fn spinners_step_by_whole_pixels_within_their_range() {
+        let range = 1.0..=100.0;
+        assert_eq!(stepped(Some(8.0), true, &range), Some(9.0));
+        assert_eq!(stepped(Some(8.0), false, &range), Some(7.0));
+        assert_eq!(stepped(Some(2.5), true, &range), Some(3.0));
+        assert_eq!(stepped(Some(2.5), false, &range), Some(2.0));
+        assert_eq!(stepped(Some(1.0), false, &range), None, "the smallest");
+        assert_eq!(stepped(Some(100.0), true, &range), None, "the largest");
+        assert_eq!(stepped(None, true, &range), None, "mixed sizes");
     }
 }
