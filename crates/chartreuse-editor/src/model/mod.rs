@@ -25,12 +25,14 @@
 //!   [`Document::step_number`].
 //! - Edits go through [`Document::add`] and [`Document::apply`] with a
 //!   [`Command`]; each is one undo step, and no-ops are not recorded.
-//! - [`Document::annotation_at`] finds the topmost annotation under a point;
-//!   [`Shape::hit`] documents the hit area of each kind.
+//! - [`Document::crop`] is the document's non-destructive crop, set (and
+//!   undone) like any edit, with [`Command::SetCrop`].
+//! - [`Document::annotation_at`] finds the topmost annotation under a point
+//!   within the cropped bounds; [`Shape::hit`] documents the hit area of
+//!   each kind.
 //!
 //! The module docs at the top of `model/annotation.rs` and `model/history.rs`
-//! describe how 3B's kinds (step markers with derived numbering, blur regions,
-//! and so on) and the document-level crop slot in.
+//! describe how new annotation kinds and document-level settings slot in.
 
 mod annotation;
 mod document;

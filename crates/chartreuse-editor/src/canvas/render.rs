@@ -156,11 +156,7 @@ pub fn shape(
 /// A blur region's pixels (see the [canvas docs](super#drawing)), on a fill
 /// of `backdrop`.
 pub fn obscured(frame: &mut Frame, viewport: &Viewport, obscured: &Obscured, backdrop: Color) {
-    let pixels = obscured.pixels;
-    let rect = viewport.to_canvas_rect(Rect::new(
-        Point::new(pixels.origin.x as f32, pixels.origin.y as f32),
-        Size::new(pixels.size.width as f32, pixels.size.height as f32),
-    ));
+    let rect = viewport.to_canvas_rect(Rect::from_pixels(obscured.pixels));
     frame.fill_rectangle(rect.position(), rect.size(), backdrop);
     frame.draw_image(
         Rectangle {
@@ -246,6 +242,60 @@ pub fn selection_outline(frame: &mut Frame, viewport: &Viewport, bounds: Rect, a
         outline.size(),
         Stroke::default().with_width(1.0).with_color(accent),
     );
+}
+
+/// `color` over all of the frame but `area`.
+pub fn mask(frame: &mut Frame, area: Rectangle, color: Color) {
+    let size = frame.size();
+    let (right, bottom) = (area.x + area.width, area.y + area.height);
+    // Above, below, then left and right of the area.
+    for (x0, y0, x1, y1) in [
+        (0.0, 0.0, size.width, area.y),
+        (0.0, bottom, size.width, size.height),
+        (0.0, area.y, area.x, bottom),
+        (right, area.y, size.width, bottom),
+    ] {
+        fill_between(frame, x0, y0, x1, y1, color);
+    }
+}
+
+/// Fills the rectangle from `(x0, y0)` to `(x1, y1)`, if it is not empty.
+fn fill_between(frame: &mut Frame, x0: f32, y0: f32, x1: f32, y1: f32, color: Color) {
+    if x1 > x0 && y1 > y0 {
+        frame.fill_rectangle(
+            CanvasPoint::new(x0, y0),
+            iced::Size::new(x1 - x0, y1 - y0),
+            color,
+        );
+    }
+}
+
+/// The crop tool's chrome for `crop` (document units): the rest of `image`
+/// (canvas coordinates) dimmed, an `accent` outline around the crop, and a
+/// [`handle`] at each corner.
+pub fn crop(frame: &mut Frame, viewport: &Viewport, image: Rectangle, crop: Rect, accent: Color) {
+    let inner = viewport.to_canvas_rect(crop);
+    let dim = Color::from_rgba(0.0, 0.0, 0.0, 0.55);
+    let (left, top) = (image.x, image.y);
+    let (right, bottom) = (image.x + image.width, image.y + image.height);
+    let (crop_right, crop_bottom) = (inner.x + inner.width, inner.y + inner.height);
+    // Above, below, then left and right of the crop.
+    for (x0, y0, x1, y1) in [
+        (left, top, right, inner.y),
+        (left, crop_bottom, right, bottom),
+        (left, inner.y, inner.x, crop_bottom),
+        (crop_right, inner.y, right, crop_bottom),
+    ] {
+        fill_between(frame, x0, y0, x1, y1, dim);
+    }
+    frame.stroke_rectangle(
+        inner.position(),
+        inner.size(),
+        Stroke::default().with_width(1.5).with_color(accent),
+    );
+    for corner in crop.corners() {
+        handle(frame, viewport.to_canvas(corner), accent);
+    }
 }
 
 /// A selection handle centered on `center`: a white square with an `accent`

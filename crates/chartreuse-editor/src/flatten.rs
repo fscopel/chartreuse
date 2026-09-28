@@ -4,7 +4,8 @@
 //! [`flatten`] draws a [`Document`]'s annotations over a copy of its base
 //! image, bottom to top, at the base image's resolution: one document unit is
 //! one output pixel, so the result is what the [canvas](crate::canvas#drawing)
-//! shows at a scale of 1, clipped to the image.
+//! shows at a scale of 1, clipped to the image. Last, it cuts the result down
+//! to the document's [crop](Document::crop), if it has one.
 //!
 //! # Rasterizer
 //!
@@ -70,8 +71,7 @@
 //! built from its helpers. Kinds that act on what is beneath them, as blur
 //! regions do, `flush` first and then work on `Flattener::image`. A
 //! `Flattener` covers a window of the document (all of it, for [`flatten`]),
-//! so draw through `Flattener::transform`. The document-level crop (3B)
-//! applies last, to the finished image (`chartreuse_imaging::crop`).
+//! so draw through `Flattener::transform`.
 //!
 //! [`Style`]: crate::model::Style
 //! [tiny-skia]: https://docs.rs/tiny-skia/0.11
@@ -101,13 +101,14 @@ use tiny_skia::{
 
 use crate::font;
 use crate::model::{
-    highlighter, Annotation, BlurMode, BlurRegion, Document, Point, Polyline, Rect, Shape, Size,
+    highlighter, Annotation, BlurMode, BlurRegion, Document, Point, Polyline, Rect, Shape,
     StepMarker, Style, Text,
 };
 
 /// The document's base image with every annotation drawn over it, bottom to
-/// top, at the base image's size (see the [module docs](self)). The document
-/// is unchanged.
+/// top, at the base image's size, then cut down to the document's
+/// [crop](Document::crop) (see the [module docs](self)). The document is
+/// unchanged.
 ///
 /// Draws text with iced's shared font system (after [`font::load`]), so it
 /// uses the same fonts, including fallbacks, as the canvas; it holds that
@@ -122,15 +123,23 @@ use crate::model::{
 pub fn flatten(document: &Document) -> Result<Image> {
     let base = document.base();
     let annotations = document.annotations();
-    if annotations.is_empty() || base.width() == 0 || base.height() == 0 {
-        return Ok(base.clone());
+    let image = if annotations.is_empty() || base.width() == 0 || base.height() == 0 {
+        base.clone()
+    } else {
+        let mut flattener = Flattener::new(base.clone(), PhysicalPoint::new(0, 0))?;
+        for annotation in annotations {
+            flattener.draw(&Drawn::of(document, annotation));
+        }
+        flattener.flush();
+        flattener.image
+    };
+    match document
+        .crop()
+        .and_then(|crop| clip(&image, crop.pixels()?))
+    {
+        Some(crop) => chartreuse_imaging::crop(&image, crop),
+        None => Ok(image),
     }
-    let mut flattener = Flattener::new(base.clone(), PhysicalPoint::new(0, 0))?;
-    for annotation in annotations {
-        flattener.draw(&Drawn::of(document, annotation));
-    }
-    flattener.flush();
-    Ok(flattener.image)
 }
 
 /// An annotation as flatten draws it: its shape and style, and a step
@@ -213,10 +222,7 @@ pub(crate) fn beneath<'a>(
         return Vec::new();
     };
     let window = window(base, below, target);
-    let window = Rect::new(
-        Point::new(window.origin.x as f32, window.origin.y as f32),
-        Size::new(window.size.width as f32, window.size.height as f32),
-    );
+    let window = Rect::from_pixels(window);
     below
         .iter()
         .filter(|drawn| drawn.reach().intersects(&window))

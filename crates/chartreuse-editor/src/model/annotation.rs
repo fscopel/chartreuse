@@ -475,20 +475,11 @@ impl BlurRegion {
     pub const BLUR_RADIUS: u32 = 8;
 
     /// The pixels the region acts on: its rectangle with each edge rounded to
-    /// the nearest pixel boundary (so it may reach past the image, which
-    /// clips it). `None` if that leaves no pixels.
+    /// the nearest pixel boundary ([`Rect::pixels`]; it may reach past the
+    /// image, which clips it). `None` if that leaves no pixels.
     #[must_use]
     pub fn pixels(&self) -> Option<PhysicalRect> {
-        // Far beyond any image, and small enough that the differences below
-        // cannot overflow.
-        const LIMIT: f32 = (1 << 30) as f32;
-        let edge = |value: f32| value.round().clamp(-LIMIT, LIMIT) as i32;
-        let (min, max) = (self.rect.min(), self.rect.max());
-        let (x0, y0) = (edge(min.x), edge(min.y));
-        let width = u32::try_from(edge(max.x) - x0).ok()?;
-        let height = u32::try_from(edge(max.y) - y0).ok()?;
-        let pixels = PhysicalRect::new(x0, y0, width, height);
-        (!pixels.is_empty()).then_some(pixels)
+        self.rect.pixels()
     }
 }
 

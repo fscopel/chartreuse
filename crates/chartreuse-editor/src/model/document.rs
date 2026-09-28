@@ -67,6 +67,26 @@ impl Document {
         Rect::new(Point::ORIGIN, size)
     }
 
+    /// The crop, if the document is cropped ([`Command::SetCrop`]).
+    ///
+    /// The crop is non-destructive: the base image and the annotations stay
+    /// whole, in the same coordinates, and only flattening (for export)
+    /// applies it, cutting the result down to the crop's pixels (its edges
+    /// rounded to whole pixels and clipped to the image; a crop entirely
+    /// outside the image is ignored). The crop tool keeps it on whole pixels
+    /// within the image.
+    #[must_use]
+    pub const fn crop(&self) -> Option<Rect> {
+        self.state.crop
+    }
+
+    /// The part of the document an export shows: the crop, or the whole
+    /// image if uncropped.
+    #[must_use]
+    pub fn cropped_bounds(&self) -> Rect {
+        self.crop().unwrap_or_else(|| self.bounds())
+    }
+
     /// Every annotation, bottom to top.
     #[must_use]
     pub fn annotations(&self) -> &[Annotation] {
@@ -179,8 +199,17 @@ impl Document {
 
     /// The topmost annotation that `point` hits, with `tolerance` in document
     /// units (see [`Shape::hit`]).
+    ///
+    /// A point outside the [cropped bounds](Self::cropped_bounds) hits
+    /// nothing: the editor hides everything outside them (apart from while
+    /// the crop tool edits the crop, which hit-tests nothing). So an
+    /// annotation partly outside is found only by its visible part, give or
+    /// take `tolerance` at the edge.
     #[must_use]
     pub fn annotation_at(&self, point: Point, tolerance: f32) -> Option<AnnotationId> {
+        if !self.cropped_bounds().contains(point) {
+            return None;
+        }
         self.state
             .annotations
             .iter()
@@ -566,6 +595,38 @@ mod tests {
     }
 
     #[test]
+    fn crop_is_an_undoable_step_that_leaves_the_annotations_alone() {
+        let mut doc = document();
+        let a = doc.add(line(0.0, 0.0, 10.0, 10.0), Style::default());
+        doc.set_selection([a]);
+        let crop = Rect::from_corners(Point::new(10.0, 20.0), Point::new(110.0, 80.0));
+        assert_eq!(doc.cropped_bounds(), doc.bounds(), "uncropped");
+
+        assert!(doc.apply(Command::SetCrop(Some(crop))));
+        assert_eq!(doc.crop(), Some(crop));
+        assert_eq!(doc.cropped_bounds(), crop);
+        assert!(doc.is_selected(a), "applying keeps the selection");
+        assert!(
+            !doc.apply(Command::SetCrop(Some(crop))),
+            "unchanged: not recorded"
+        );
+
+        // Undo restores the crop before, selecting nothing, since it touched
+        // no annotation; redo brings the crop back.
+        assert!(doc.undo());
+        assert_eq!(doc.crop(), None);
+        assert!(doc.selection().is_empty());
+        assert!(doc.redo());
+        assert_eq!(doc.crop(), Some(crop));
+
+        assert!(doc.apply(Command::SetCrop(None)));
+        assert_eq!(doc.crop(), None);
+        assert!(doc.undo() && doc.undo());
+        assert_eq!(doc.crop(), None);
+        assert_eq!(doc.annotations().len(), 1, "the add is still there");
+    }
+
+    #[test]
     fn translate_moves_each_annotation_once_and_undo_restores_exactly() {
         let mut doc = document();
         let a = doc.add(line(0.1, 0.2, 10.3, 10.7), Style::default());
@@ -818,10 +879,11 @@ mod tests {
     fn undo_and_redo_replay_a_long_random_session_exactly() {
         let mut rng = Rng(7);
         let mut doc = document();
-        let mut states = vec![doc.annotations().to_vec()];
+        let state = |doc: &Document| (doc.annotations().to_vec(), doc.crop());
+        let mut states = vec![state(&doc)];
         for _ in 0..500 {
             let existing = ids(&doc);
-            let changed = match rng.below(8) {
+            let changed = match rng.below(9) {
                 0 | 1 => {
                     let (ax, ay, bx, by) = (rng.coord(), rng.coord(), rng.coord(), rng.coord());
                     let shape = match rng.below(4) {
@@ -859,6 +921,12 @@ mod tests {
                     id: existing[rng.below(existing.len())],
                     shape: line(rng.coord(), rng.coord(), rng.coord(), rng.coord()),
                 }),
+                7 => doc.apply(Command::SetCrop((rng.below(3) > 0).then(|| {
+                    Rect::from_corners(
+                        Point::new(rng.coord(), rng.coord()),
+                        Point::new(rng.coord(), rng.coord()),
+                    )
+                }))),
                 _ => doc.apply(Command::Reorder {
                     ids: rng.some_of(&existing),
                     step: [
@@ -870,21 +938,21 @@ mod tests {
                 }),
             };
             if changed {
-                states.push(doc.annotations().to_vec());
+                states.push(state(&doc));
             } else {
-                assert_eq!(doc.annotations(), states.last().unwrap().as_slice());
+                assert_eq!(&state(&doc), states.last().unwrap());
             }
         }
         assert!(states.len() > 300, "too few steps: {}", states.len());
 
-        for state in states.iter().rev().skip(1) {
+        for expected in states.iter().rev().skip(1) {
             assert!(doc.undo());
-            assert_eq!(doc.annotations(), state.as_slice());
+            assert_eq!(&state(&doc), expected);
         }
         assert!(!doc.undo());
-        for state in states.iter().skip(1) {
+        for expected in states.iter().skip(1) {
             assert!(doc.redo());
-            assert_eq!(doc.annotations(), state.as_slice());
+            assert_eq!(&state(&doc), expected);
         }
         assert!(!doc.redo());
     }

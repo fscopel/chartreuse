@@ -105,8 +105,15 @@ pub fn reshaped(shape: &Shape, handle: Handle, to: Point, constrain: bool) -> Sh
 
 /// The handle under `at` (within `reach`, in document units) of the selected
 /// annotation, if exactly one is selected. The nearest wins.
+///
+/// Like [`Document::annotation_at`], a point outside the document's
+/// [cropped bounds](Document::cropped_bounds) hits nothing, so a handle
+/// outside them can be grabbed only from inside, within `reach` of the edge.
 #[must_use]
 pub fn handle_at(document: &Document, at: Point, reach: f32) -> Option<(AnnotationId, Handle)> {
+    if !document.cropped_bounds().contains(at) {
+        return None;
+    }
     let mut selected = document.selected();
     let (Some(annotation), None) = (selected.next(), selected.next()) else {
         return None;

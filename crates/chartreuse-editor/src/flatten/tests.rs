@@ -6,7 +6,8 @@ use super::*;
 use crate::font;
 use crate::model::{
     distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_triangle, Arrow,
-    BlurMode, BlurRegion, Ellipse, Line, Polyline, Rect, Rectangle, StepMarker, Style, Text,
+    BlurMode, BlurRegion, Command, Ellipse, Line, Polyline, Rect, Rectangle, StepMarker, Style,
+    Text,
 };
 
 /// How far outside a shape's edge a pixel's center can be and still be
@@ -528,6 +529,38 @@ fn obscured_gives_a_region_exactly_the_pixels_flatten_does() {
         rect: Rect::from_corners(Point::new(-20.0, 0.0), Point::new(-1.0, 10.0)),
     };
     assert!(obscured(&image, &below, &off, mode).is_none());
+}
+
+#[test]
+fn a_crop_cuts_the_flattened_image_down_last() {
+    let image = base(60, 40);
+    let mut document = Document::new(image.clone());
+    let (shape, pixelate) = blur(0.0, 0.0, 60.0, 40.0, BlurMode::Pixelate);
+    document.add(line(0.0, 20.0, 60.0, 20.0), style(BLUE, 4.0));
+    // A pixelated region over the whole image: its grid starts at the
+    // image's corner, not the crop's, so the crop is of the result.
+    document.add(shape, pixelate);
+    let whole = flatten(&document).unwrap();
+
+    let crop = |document: &mut Document, ax, ay, bx, by| {
+        let rect = Rect::from_corners(Point::new(ax, ay), Point::new(bx, by));
+        document.apply(Command::SetCrop(Some(rect)));
+        flatten(document).unwrap()
+    };
+    let cropped = crop(&mut document, 10.0, 5.0, 45.0, 30.0);
+    assert!(cropped == chartreuse_imaging::crop(&whole, PhysicalRect::new(10, 5, 35, 25)).unwrap());
+    // Rounded to whole pixels and clipped to the image.
+    let clipped = crop(&mut document, 49.6, -8.0, 90.0, 12.4);
+    assert!(clipped == chartreuse_imaging::crop(&whole, PhysicalRect::new(50, 0, 10, 12)).unwrap());
+    // Entirely outside, or uncropped: the whole image.
+    assert!(crop(&mut document, 100.0, 0.0, 120.0, 10.0) == whole);
+    document.apply(Command::SetCrop(None));
+    assert!(flatten(&document).unwrap() == whole);
+
+    // With no annotations too.
+    let mut plain = Document::new(image.clone());
+    let cropped = crop(&mut plain, 0.0, 0.0, 20.0, 10.0);
+    assert!(cropped == chartreuse_imaging::crop(&image, PhysicalRect::new(0, 0, 20, 10)).unwrap());
 }
 
 #[test]

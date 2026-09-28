@@ -7,6 +7,8 @@
 
 use std::ops::{Add, AddAssign, Mul, Neg, Sub};
 
+use chartreuse_core::geometry::PhysicalRect;
+
 /// A position in document coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Point {
@@ -266,6 +268,32 @@ impl Rect {
             min: self.min + delta,
             max: self.max + delta,
         }
+    }
+
+    /// The whole pixels the rectangle covers once each edge is rounded to the
+    /// nearest pixel boundary (so it may reach past an image, which clips
+    /// it). `None` if that leaves no pixels.
+    #[must_use]
+    pub fn pixels(&self) -> Option<PhysicalRect> {
+        // Far beyond any image, and small enough that the differences below
+        // cannot overflow.
+        const LIMIT: f32 = (1 << 30) as f32;
+        let edge = |value: f32| value.round().clamp(-LIMIT, LIMIT) as i32;
+        let (x0, y0) = (edge(self.min.x), edge(self.min.y));
+        let width = u32::try_from(edge(self.max.x) - x0).ok()?;
+        let height = u32::try_from(edge(self.max.y) - y0).ok()?;
+        let pixels = PhysicalRect::new(x0, y0, width, height);
+        (!pixels.is_empty()).then_some(pixels)
+    }
+
+    /// The rectangle a block of whole pixels covers.
+    #[must_use]
+    pub fn from_pixels(pixels: PhysicalRect) -> Self {
+        let min = Point::new(pixels.origin.x as f32, pixels.origin.y as f32);
+        Self::new(
+            min,
+            Size::new(pixels.size.width as f32, pixels.size.height as f32),
+        )
     }
 
     /// The distance from `point` to the nearest point on the rectangle's outline,

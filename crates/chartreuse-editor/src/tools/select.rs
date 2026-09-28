@@ -11,8 +11,9 @@ use crate::model::{AnnotationId, Command, Document, Point, Vector};
 /// text to edit it.
 ///
 /// - A click selects the topmost annotation under the pointer
-///   ([`Document::annotation_at`]) and nothing else; a click on nothing
-///   clears the selection. Shift-click adds or removes one annotation.
+///   ([`Document::annotation_at`]) and nothing else; a click on nothing,
+///   including anywhere outside the crop, clears the selection. Shift-click
+///   adds or removes one annotation.
 /// - Dragging a selected annotation moves the whole selection (dragging an
 ///   unselected one selects it first). The move is previewed and recorded as
 ///   one [`Command::Translate`] on release.

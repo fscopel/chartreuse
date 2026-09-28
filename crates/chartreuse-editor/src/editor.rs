@@ -33,6 +33,8 @@ pub enum Message {
     /// Sets how blur regions obscure what is beneath them, like
     /// [`Message::Color`].
     BlurMode(BlurMode),
+    /// Uncrops the document (one undo step), dropping any crop being edited.
+    ClearCrop,
     Undo,
     Redo,
     /// Deletes the selected annotations.
@@ -103,10 +105,11 @@ impl Editor {
         let handle =
             image::Handle::from_rgba(image.width(), image.height(), image.pixels().to_vec());
         let canvas = iced::Size::new(image.width() as f32, image.height() as f32);
+        let document = Document::new(image);
         Self {
-            document: Document::new(image),
+            tool: ToolKind::Select.create(&document),
+            document,
             image: handle,
-            tool: ToolKind::Select.create(),
             style: Style::default(),
             view: View::default(),
             canvas,
@@ -177,6 +180,10 @@ impl Editor {
                 });
                 None
             }
+            Message::ClearCrop => {
+                self.clear_crop();
+                None
+            }
             Message::Undo => {
                 self.undo();
                 None
@@ -242,9 +249,14 @@ impl Editor {
         self.view.viewport(size, self.area())
     }
 
-    /// The part of the document the canvas shows.
-    fn area(&self) -> Rect {
-        self.document.bounds()
+    /// The part of the document the canvas shows: the whole image while
+    /// cropping, otherwise [`Document::cropped_bounds`].
+    pub(crate) fn area(&self) -> Rect {
+        if self.tool.kind() == ToolKind::Crop {
+            self.document.bounds()
+        } else {
+            self.document.cropped_bounds()
+        }
     }
 
     fn canvas_input(&mut self, input: Input) -> Option<Event> {
@@ -290,8 +302,24 @@ impl Editor {
     fn set_tool(&mut self, kind: ToolKind) {
         if kind != self.tool.kind() {
             self.finish();
-            self.tool = kind.create();
+            self.tool = kind.create(&self.document);
         }
+    }
+
+    /// Starts the active tool afresh, so it picks up a document changed
+    /// under it (by undo, say).
+    fn restart_tool(&mut self) {
+        self.tool = self.tool.kind().create(&self.document);
+    }
+
+    /// Uncrops the document as one undo step. A crop being edited is dropped
+    /// rather than applied first.
+    fn clear_crop(&mut self) {
+        if self.tool.kind() != ToolKind::Crop {
+            self.finish();
+        }
+        self.document.apply(Command::SetCrop(None));
+        self.restart_tool();
     }
 
     /// Changes the style for new annotations, the open text edit's style, and
@@ -308,11 +336,13 @@ impl Editor {
     fn undo(&mut self) {
         self.finish();
         self.document.undo();
+        self.restart_tool();
     }
 
     fn redo(&mut self) {
         self.finish();
         self.document.redo();
+        self.restart_tool();
     }
 
     fn zoom_by(&mut self, change: ZoomChange) {
@@ -339,7 +369,8 @@ impl Editor {
     /// - While a text edit is open, other keys type (see [`Self::type_key`]).
     /// - Otherwise Delete or Backspace deletes the selection, Escape abandons
     ///   the gesture in progress or, if there is none, clears the selection,
-    ///   and a tool's [hotkey](ToolKind::hotkey) switches to it.
+    ///   Enter [confirms](Tool::confirm) the tool's job (applies a crop), and
+    ///   a tool's [hotkey](ToolKind::hotkey) switches to it.
     fn key(
         &mut self,
         key: &keyboard::Key,
@@ -379,6 +410,7 @@ impl Editor {
                     self.document.clear_selection();
                 }
             }
+            Key::Named(Named::Enter) => self.with_tool(|tool, cx| tool.confirm(cx)),
             Key::Character(c) if !modifiers.control() && !modifiers.alt() => {
                 if let Some(kind) = ToolKind::from_hotkey(c) {
                     self.set_tool(kind);
@@ -457,7 +489,8 @@ impl Editor {
         self.with_tool(|tool, cx| tool.pointer(pointer, cx));
     }
 
-    /// Runs `f` on the active tool with a context for the current state.
+    /// Runs `f` on the active tool with a context for the current state,
+    /// then returns to the select tool if the tool is done.
     fn with_tool<T>(&mut self, f: impl FnOnce(&mut dyn Tool, &mut Context<'_>) -> T) -> T {
         let pixel = self.viewport(self.canvas).to_document_length(1.0);
         let mut cx = Context {
@@ -466,7 +499,11 @@ impl Editor {
             pixel,
             shift: self.modifiers.shift(),
         };
-        f(self.tool.as_mut(), &mut cx)
+        let result = f(self.tool.as_mut(), &mut cx);
+        if self.tool.is_done() {
+            self.tool = ToolKind::Select.create(&self.document);
+        }
+        result
     }
 }
 
@@ -999,6 +1036,127 @@ mod tests {
         let newest = editor.document().annotations().last().unwrap();
         assert_eq!(newest.style.color, Style::DEFAULT_COLOR);
         assert_eq!(newest.style.stroke_width, 12.0);
+    }
+
+    fn crop_rect(ax: f32, ay: f32, bx: f32, by: f32) -> Rect {
+        Rect::from_corners(Point::new(ax, ay), Point::new(bx, by))
+    }
+
+    #[test]
+    fn enter_applies_a_crop_and_the_canvas_then_shows_just_the_crop() {
+        let mut editor = editor();
+        chord(&mut editor, "c", keyboard::Modifiers::default());
+        assert_eq!(editor.tool(), ToolKind::Crop);
+        drag(&mut editor, at(100.0, 50.0), at(300.0, 250.0));
+        assert_eq!(editor.document().crop(), None, "still editing");
+        assert_eq!(editor.area(), editor.document().bounds(), "the whole image");
+
+        named(&mut editor, Named::Enter);
+        let crop = crop_rect(100.0, 50.0, 300.0, 250.0);
+        assert_eq!(editor.document().crop(), Some(crop));
+        assert_eq!(editor.tool(), ToolKind::Select, "done");
+        assert_eq!(editor.area(), crop);
+
+        // The fitted view now centers the 200 × 200 crop at 1:1: document
+        // (100, 50) is at the canvas's (116, 66), and drawing lands there.
+        let viewport = editor.viewport(CANVAS);
+        assert_eq!(
+            viewport.to_canvas(crop.min()),
+            iced::Point::new(116.0, 66.0)
+        );
+        editor.update(Message::Tool(ToolKind::Line));
+        drag(
+            &mut editor,
+            iced::Point::new(116.0, 66.0),
+            iced::Point::new(216.0, 66.0),
+        );
+        assert_eq!(
+            editor.document().annotations()[0].shape,
+            Shape::Line(Line {
+                start: Point::new(100.0, 50.0),
+                end: Point::new(200.0, 50.0),
+            })
+        );
+    }
+
+    #[test]
+    fn escape_cancels_a_crop_edit_and_undo_restarts_the_crop_tool() {
+        let mut editor = editor();
+        editor.update(Message::Tool(ToolKind::Crop));
+        drag(&mut editor, at(10.0, 10.0), at(110.0, 110.0));
+        named(&mut editor, Named::Escape);
+        assert_eq!(editor.tool(), ToolKind::Select);
+        assert_eq!(editor.document().crop(), None);
+        assert!(!editor.document().can_undo());
+
+        // Switching tools applies the crop being edited.
+        editor.update(Message::Tool(ToolKind::Crop));
+        drag(&mut editor, at(10.0, 10.0), at(110.0, 110.0));
+        editor.update(Message::Tool(ToolKind::Arrow));
+        assert_eq!(
+            editor.document().crop(),
+            Some(crop_rect(10.0, 10.0, 110.0, 110.0))
+        );
+
+        // Undo while cropping applies the edit, undoes it, and the crop tool
+        // shows the crop from before.
+        editor.update(Message::Tool(ToolKind::Crop));
+        drag(&mut editor, at(50.0, 50.0), at(250.0, 200.0));
+        editor.update(Message::Undo);
+        assert_eq!(
+            editor.document().crop(),
+            Some(crop_rect(10.0, 10.0, 110.0, 110.0))
+        );
+        assert_eq!(
+            editor.active_tool().preview(),
+            crate::tools::Preview::Crop(editor.document().crop())
+        );
+    }
+
+    #[test]
+    fn clearing_the_crop_is_one_undo_step_that_drops_an_edit() {
+        let mut editor = editor();
+        editor.update(Message::Tool(ToolKind::Crop));
+        drag(&mut editor, at(10.0, 10.0), at(110.0, 110.0));
+        named(&mut editor, Named::Enter);
+        editor.update(Message::Tool(ToolKind::Crop));
+        drag(&mut editor, at(150.0, 150.0), at(250.0, 250.0));
+        editor.update(Message::ClearCrop);
+        assert_eq!(editor.document().crop(), None);
+        assert_eq!(editor.tool(), ToolKind::Crop);
+        assert_eq!(
+            editor.active_tool().preview(),
+            crate::tools::Preview::Crop(None)
+        );
+        editor.update(Message::Undo);
+        assert_eq!(
+            editor.document().crop(),
+            Some(crop_rect(10.0, 10.0, 110.0, 110.0))
+        );
+    }
+
+    #[test]
+    fn outside_the_crop_the_pointer_selects_and_grabs_nothing() {
+        let mut editor = editor();
+        // A line from inside the crop-to-be out past its left edge.
+        editor.update(Message::Tool(ToolKind::Line));
+        drag(&mut editor, at(150.0, 150.0), at(20.0, 150.0));
+        let line = editor.document().annotations()[0].clone();
+        editor.update(Message::Tool(ToolKind::Crop));
+        drag(&mut editor, at(100.0, 50.0), at(300.0, 250.0));
+        named(&mut editor, Named::Enter);
+        // The 200 × 200 crop fits at 1:1 where it was, so `at` still maps
+        // document points; left of x = 100 is the backdrop.
+
+        click(&mut editor, at(60.0, 150.0));
+        assert!(editor.document().selection().is_empty(), "the hidden part");
+        click(&mut editor, at(130.0, 150.0));
+        assert!(editor.document().is_selected(line.id()), "the visible part");
+
+        // From the backdrop, the hidden end's handle cannot be dragged.
+        drag(&mut editor, at(20.0, 150.0), at(40.0, 170.0));
+        assert_eq!(editor.document().annotations(), [line]);
+        assert!(editor.document().selection().is_empty());
     }
 
     #[test]

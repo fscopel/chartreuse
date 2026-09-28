@@ -9,26 +9,19 @@
 //! # Extending
 //!
 //! Edits are planned against and applied to a [`State`], which holds
-//! everything undoable. 3B's non-destructive crop needs exactly these
-//! additions and changes nothing else:
-//!
-//! - a `crop: Option<Rect>` field on [`State`] (`None` by default: uncropped),
-//!   with a `Document` getter;
-//! - an `Edit::SetCrop { before: Option<Rect>, after: Option<Rect> }` variant,
-//!   with an arm in each `match` on `Edit`: `apply` sets `state.crop` to
-//!   `after` and returns no ids (it touches no annotations, so undoing or
-//!   redoing it leaves nothing selected), `inverted` swaps `before` and
-//!   `after`, and `is_empty` is `before == after`;
-//! - a `Command::SetCrop(Option<Rect>)`, which [`Edit::plan`] turns into a
-//!   `SetCrop` with `before` read from the state (so setting the current crop
-//!   records nothing).
+//! everything undoable: the annotations and the document-level crop. A new
+//! document-level setting is a [`State`] field, a [`Command`] that sets it,
+//! and an [`Edit`] holding its value before and after, as the crop's
+//! `SetCrop` does: `apply` sets the field and returns no ids (it touches no
+//! annotations, so undoing or redoing it leaves nothing selected),
+//! `inverted` swaps before and after, and `is_empty` compares them.
 //!
 //! New annotation kinds need nothing here.
 
 use std::collections::{BTreeSet, HashMap};
 
 use super::annotation::{Annotation, AnnotationId, Shape};
-use super::geometry::Vector;
+use super::geometry::{Rect, Vector};
 use super::style::StylePatch;
 
 /// A recordable edit to a [`Document`](super::Document)'s annotations, applied
@@ -64,6 +57,11 @@ pub enum Command {
         ids: Vec<AnnotationId>,
         step: Reorder,
     },
+    /// Crops the document to a rectangle, or (`None`) uncrops it. The crop
+    /// is non-destructive: the base image and the annotations are kept
+    /// whole, and only flattening applies it (see
+    /// [`Document::crop`](super::Document::crop)).
+    SetCrop(Option<Rect>),
 }
 
 /// A z-order change for a set of annotations (the targets). Targets keep their
@@ -87,6 +85,8 @@ pub enum Reorder {
 pub(super) struct State {
     /// Bottom to top.
     pub(super) annotations: Vec<Annotation>,
+    /// `None`: uncropped.
+    pub(super) crop: Option<Rect>,
 }
 
 /// An annotation at its z-order index.
@@ -121,6 +121,11 @@ pub(super) enum Edit {
         before: Vec<AnnotationId>,
         after: Vec<AnnotationId>,
         moved: Vec<AnnotationId>,
+    },
+    /// Changes the crop.
+    SetCrop {
+        before: Option<Rect>,
+        after: Option<Rect>,
     },
 }
 
@@ -195,6 +200,10 @@ impl Edit {
                     moved,
                 }
             }
+            Command::SetCrop(crop) => Self::SetCrop {
+                before: state.crop,
+                after: crop,
+            },
         };
         (!edit.is_empty()).then_some(edit)
     }
@@ -204,6 +213,7 @@ impl Edit {
             Self::Insert(placed) | Self::Remove(placed) => placed.is_empty(),
             Self::Modify(changes) => changes.is_empty(),
             Self::Reorder { before, after, .. } => before == after,
+            Self::SetCrop { before, after } => before == after,
         }
     }
 
@@ -230,6 +240,10 @@ impl Edit {
                 before: after,
                 after: before,
                 moved,
+            },
+            Self::SetCrop { before, after } => Self::SetCrop {
+                before: after,
+                after: before,
             },
         }
     }
@@ -268,6 +282,10 @@ impl Edit {
                 debug_assert_eq!(rank.len(), annotations.len());
                 annotations.sort_by_key(|a| rank.get(&a.id()).copied().unwrap_or(usize::MAX));
                 moved.clone()
+            }
+            Self::SetCrop { after, .. } => {
+                state.crop = *after;
+                Vec::new()
             }
         }
     }

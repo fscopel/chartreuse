@@ -15,11 +15,24 @@
 //! 2. the annotations, split into runs in z-order such that within a run
 //!    meshes come before images and images before text (see [`runs`]), one
 //!    layer per run, so every annotation is drawn above the ones below it;
-//! 3. the overlay: the active tool's preview and any selection chrome. This
-//!    top layer is also the one that handles input.
+//! 3. the preview: the annotation or text the active tool is making;
+//! 4. the overlay: the backdrop around the image (or the crop), covering
+//!    whatever the layers below drew outside it, and then the selection and
+//!    other chrome. This top layer is also the one that handles input.
 //!
-//! Annotations and previews are clipped to the image, as they are when
-//! flattened; selection chrome is not.
+//! So the base image, annotations, and previews are clipped to the image, as
+//! they are when flattened; selection chrome is not. (Renderers clip only
+//! meshes to a frame's clip region, if that, never images or text, hence the
+//! cover.)
+//!
+//! # Crop
+//!
+//! The canvas shows the editor's *area* ([`Editor::area`](crate::Editor)):
+//! the document's crop, if it has one, as if it were the whole image, with
+//! the base image, the annotations, and previews clipped to it, as the export
+//! is. While the crop tool is active the area is the whole image instead, so
+//! the crop can be changed: the part outside the crop being edited is dimmed,
+//! and the crop has an outline and a handle at each corner.
 //!
 //! The base and annotation layers keep their geometry and redraw only when
 //! what they show changes: the image, the view, the canvas size, the theme,
@@ -117,7 +130,7 @@ use smol_str::SmolStr;
 
 use crate::editor::Message;
 use crate::flatten::Drawn;
-use crate::model::{Annotation, AnnotationId, BlurRegion, Shape, Style};
+use crate::model::{Annotation, AnnotationId, BlurRegion, Rect, Shape, Style};
 use crate::tools::{self, Preview, TextTarget};
 use crate::Editor;
 
@@ -181,6 +194,7 @@ pub(crate) fn view(editor: &Editor) -> Element<'_, Message> {
         space().width(Length::Fill).height(Length::Fill),
         layer(Layer::Base),
         stack(annotations).width(Length::Fill).height(Length::Fill),
+        layer(Layer::Preview),
         layer(Layer::Overlay),
     ]
     .width(Length::Fill)
@@ -250,6 +264,7 @@ impl Primitive {
 enum Layer {
     Base,
     Annotations(Range<usize>),
+    Preview,
     Overlay,
 }
 
@@ -291,10 +306,14 @@ enum Content<'a> {
     Base {
         image: image::Id,
         viewport: Viewport,
+        /// The area shown, which clips the image.
+        area: Rect,
         backdrop: Color,
     },
     Annotations {
         viewport: Viewport,
+        /// The area shown, which clips the annotations.
+        area: Rect,
         annotations: Cow<'a, [Annotation]>,
         /// Device pixels per canvas pixel, which highlighters are rasterized
         /// at.
@@ -316,14 +335,17 @@ impl Content<'_> {
             Content::Base {
                 image,
                 viewport,
+                area,
                 backdrop,
             } => Content::Base {
                 image,
                 viewport,
+                area,
                 backdrop,
             },
             Content::Annotations {
                 viewport,
+                area,
                 annotations,
                 scale_factor,
                 numbers,
@@ -331,6 +353,7 @@ impl Content<'_> {
                 backdrop,
             } => Content::Annotations {
                 viewport,
+                area,
                 annotations: Cow::Owned(annotations.into_owned()),
                 scale_factor,
                 numbers,
@@ -439,10 +462,13 @@ impl Scene<'_> {
                 FilterMethod::Linear
             },
         );
-        frame.draw_image(
-            viewport.to_canvas_rect(self.editor.document().bounds()),
-            image,
-        );
+        let clip = viewport.to_canvas_rect(self.editor.area());
+        frame.with_clip(clip, |frame| {
+            frame.draw_image(
+                viewport.to_canvas_rect(self.editor.document().bounds()),
+                image,
+            );
+        });
     }
 
     /// Draws `annotations` as displayed while `preview` is in progress;
@@ -456,7 +482,7 @@ impl Scene<'_> {
         preview: &Preview<'_>,
         backdrop: Color,
     ) {
-        let clip = viewport.to_canvas_rect(self.editor.document().bounds());
+        let clip = viewport.to_canvas_rect(self.editor.area());
         let raster = self.raster(frame.size(), clip);
         let document = self.editor.document();
         frame.with_clip(clip, |frame| {
@@ -540,16 +566,15 @@ impl Scene<'_> {
         }
     }
 
-    fn draw_overlay(&self, frame: &mut Frame, theme: &Theme) {
+    /// The annotation or text the active tool's gesture is making.
+    fn draw_preview(&self, frame: &mut Frame, theme: &Theme) {
         let backdrop = backdrop(theme);
         let viewport = self.editor.viewport(frame.size());
-        let clip = viewport.to_canvas_rect(self.editor.document().bounds());
+        let clip = viewport.to_canvas_rect(self.editor.area());
         let raster = self.raster(frame.size(), clip);
-        let accent = theme.palette().primary;
         let preview = self.editor.active_tool().preview();
-        self.draw_selection(frame, &viewport, &preview, accent);
         match &preview {
-            Preview::None | Preview::Moved(..) | Preview::Reshaped(..) => {}
+            Preview::None | Preview::Moved(..) | Preview::Reshaped(..) | Preview::Crop(_) => {}
             Preview::New(shape) => frame.with_clip(clip, |frame| {
                 let style = self.editor.style();
                 if let Shape::Blur(region) = shape {
@@ -570,16 +595,38 @@ impl Scene<'_> {
                         render::canvas_text(edit.content(), position, &style, viewport.scale());
                     frame.fill_text(text);
                 });
-                render::text_edit(
-                    frame,
-                    &viewport,
-                    edit.position(),
-                    edit.size(),
-                    edit.caret(),
-                    &style,
-                    accent,
-                );
             }
+        }
+    }
+
+    /// The backdrop around the area, covering whatever the layers below drew
+    /// outside it, then the chrome: selection outlines and handles, the crop
+    /// being edited, a text edit's outline and caret.
+    fn draw_overlay(&self, frame: &mut Frame, theme: &Theme) {
+        let viewport = self.editor.viewport(frame.size());
+        let area = viewport.to_canvas_rect(self.editor.area());
+        render::mask(frame, area, backdrop(theme));
+        let accent = theme.palette().primary;
+        let preview = self.editor.active_tool().preview();
+        if !matches!(preview, Preview::Crop(_)) {
+            self.draw_selection(frame, &viewport, &preview, accent);
+        }
+        match &preview {
+            Preview::None | Preview::Moved(..) | Preview::Reshaped(..) | Preview::New(_) => {}
+            Preview::Crop(crop) => {
+                if let Some(crop) = crop {
+                    render::crop(frame, &viewport, area, *crop, accent);
+                }
+            }
+            Preview::Text(edit) => render::text_edit(
+                frame,
+                &viewport,
+                edit.position(),
+                edit.size(),
+                edit.caret(),
+                &edit.style(),
+                accent,
+            ),
         }
     }
 
@@ -684,6 +731,7 @@ impl Program<Message> for Scene<'_> {
                 let content = Content::Base {
                     image: self.editor.image().id(),
                     viewport,
+                    area: self.editor.area(),
                     backdrop,
                 };
                 state.drawing.draw(renderer, size, Some(content), |frame| {
@@ -701,6 +749,7 @@ impl Program<Message> for Scene<'_> {
                     .all(|annotation| unchanged(annotation, &preview))
                     .then(|| Content::Annotations {
                         viewport,
+                        area: self.editor.area(),
                         annotations: Cow::Borrowed(annotations),
                         scale_factor: self.editor.scale_factor(),
                         numbers: annotations
@@ -724,6 +773,11 @@ impl Program<Message> for Scene<'_> {
                         backdrop,
                     );
                 })
+            }
+            Layer::Preview => {
+                let mut frame = Frame::new(renderer, size);
+                self.draw_preview(&mut frame, theme);
+                frame.into_geometry()
             }
             Layer::Overlay => {
                 let mut frame = Frame::new(renderer, size);
@@ -784,10 +838,7 @@ mod tests {
                     center: DocPoint::ORIGIN,
                 }),
                 'b' => Shape::Blur(BlurRegion {
-                    rect: crate::model::Rect::from_corners(
-                        DocPoint::ORIGIN,
-                        DocPoint::new(5.0, 5.0),
-                    ),
+                    rect: Rect::from_corners(DocPoint::ORIGIN, DocPoint::new(5.0, 5.0)),
                 }),
                 _ => Shape::Line(Line {
                     start: DocPoint::ORIGIN,
@@ -866,6 +917,7 @@ mod tests {
         let shows = |viewport, annotations| {
             Some(Content::Annotations {
                 viewport,
+                area: document.bounds(),
                 annotations: Cow::Borrowed(annotations),
                 scale_factor: 1.0,
                 numbers: Vec::new(),

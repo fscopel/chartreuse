@@ -1,5 +1,5 @@
-//! The editor's toolbar: tools, style controls (including how blur regions
-//! obscure), undo and redo, and zoom.
+//! The editor's toolbar: tools, crop controls, style controls (including how
+//! blur regions obscure), undo and redo, and zoom.
 //!
 //! Its accent (the active tool, the chosen color swatch) is the theme's
 //! primary color; the app's theme sets that to the build flavor's accent.
@@ -13,7 +13,7 @@ use iced::{Alignment, Background, Border, Element, Theme};
 use crate::canvas;
 use crate::editor::{Message, ZoomChange};
 use crate::model::BlurMode;
-use crate::tools::ToolKind;
+use crate::tools::{Preview, ToolKind};
 use crate::Editor;
 
 /// The color swatches, in order.
@@ -83,6 +83,31 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         .into()
     }));
 
+    // While cropping: apply (by switching back to the select tool, which
+    // applies the crop being edited) and clear. Otherwise clear, if cropped.
+    let cropping = editor.tool() == ToolKind::Crop;
+    let editing_crop = matches!(editor.active_tool().preview(), Preview::Crop(Some(_)));
+    let mut crop = Vec::new();
+    if cropping {
+        crop.push(
+            button(text("Apply crop"))
+                .on_press(Message::Tool(ToolKind::Select))
+                .style(button::primary)
+                .into(),
+        );
+    }
+    if cropping || document.crop().is_some() {
+        crop.push(
+            button(text("Clear crop"))
+                .on_press_maybe(
+                    (editing_crop || document.crop().is_some()).then_some(Message::ClearCrop),
+                )
+                .style(button::secondary)
+                .into(),
+        );
+    }
+    let crop = (!crop.is_empty()).then(|| group(crop));
+
     let colors = group(
         COLORS
             .into_iter()
@@ -145,7 +170,9 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
             .into(),
     ]);
 
-    row![tools, colors, sizes, blur, history, zoom]
+    row![tools]
+        .push(crop)
+        .extend([colors, sizes, blur, history, zoom].map(Element::from))
         .spacing(GROUP_SPACING)
         .padding(8)
         .align_y(Alignment::Center)

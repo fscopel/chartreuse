@@ -13,8 +13,11 @@
 //!   [`Tool::preview`], which the canvas draws on top of the document.
 //! - It commits a finished gesture to the document as exactly one undo step
 //!   (one [`Document::add`] or [`Document::apply`]).
-//! - [`Tool::escape`] abandons the gesture (the Escape key) and
-//!   [`Tool::finish`] completes it early (switching tools).
+//! - [`Tool::escape`] abandons the gesture (the Escape key),
+//!   [`Tool::confirm`] completes it (the Enter key), and [`Tool::finish`]
+//!   completes it early (switching tools).
+//! - A tool with a job to finish (the crop tool) reports when it is
+//!   [done](Tool::is_done), and the editor returns to the select tool.
 //!
 //! Tools are pure logic over the model: they never touch the renderer, so they
 //! are tested by feeding them events.
@@ -29,6 +32,7 @@
 
 mod arrow;
 mod blur;
+mod crop;
 mod drag;
 mod ellipse;
 mod freehand;
@@ -45,10 +49,11 @@ use std::fmt;
 
 use iced::mouse::Interaction;
 
-use crate::model::{AnnotationId, Document, Point, Shape, Style, Vector};
+use crate::model::{AnnotationId, Document, Point, Rect, Shape, Style, Vector};
 
 pub use arrow::ArrowTool;
 pub use blur::BlurTool;
+pub use crop::CropTool;
 pub use drag::{DragShape, DragTool};
 pub use ellipse::EllipseTool;
 pub use freehand::{FreehandShape, FreehandTool};
@@ -83,11 +88,12 @@ pub enum ToolKind {
     Text,
     Step,
     Blur,
+    Crop,
 }
 
 impl ToolKind {
     /// Every kind, in toolbar order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Select,
         Self::Line,
         Self::Arrow,
@@ -98,6 +104,7 @@ impl ToolKind {
         Self::Text,
         Self::Step,
         Self::Blur,
+        Self::Crop,
     ];
 
     /// The name shown in the toolbar.
@@ -114,6 +121,7 @@ impl ToolKind {
             Self::Text => "Text",
             Self::Step => "Step",
             Self::Blur => "Blur",
+            Self::Crop => "Crop",
         }
     }
 
@@ -131,6 +139,7 @@ impl ToolKind {
             Self::Text => 't',
             Self::Step => 'n',
             Self::Blur => 'b',
+            Self::Crop => 'c',
         }
     }
 
@@ -146,9 +155,9 @@ impl ToolKind {
             .find(|kind| kind.hotkey() == c.to_ascii_lowercase())
     }
 
-    /// A new tool of this kind, with nothing in progress.
+    /// A new tool of this kind for `document`, with nothing in progress.
     #[must_use]
-    pub fn create(self) -> Box<dyn Tool> {
+    pub fn create(self, document: &Document) -> Box<dyn Tool> {
         match self {
             Self::Select => Box::<SelectTool>::default(),
             Self::Line => Box::<LineTool>::default(),
@@ -160,6 +169,7 @@ impl ToolKind {
             Self::Text => Box::<TextTool>::default(),
             Self::Step => Box::<StepTool>::default(),
             Self::Blur => Box::<BlurTool>::default(),
+            Self::Crop => Box::new(CropTool::new(document)),
         }
     }
 }
@@ -223,6 +233,9 @@ pub enum Preview<'a> {
     /// An annotation drawn with a different shape (a handle drag in
     /// progress).
     Reshaped(AnnotationId, &'a Shape),
+    /// The crop tool is active, editing this crop (`None`: the whole image).
+    /// The canvas shows the whole image meanwhile.
+    Crop(Option<Rect>),
 }
 
 /// An annotation tool: a state machine turning pointer events into commands
@@ -238,12 +251,22 @@ pub trait Tool: fmt::Debug {
     /// anything was in progress.
     fn escape(&mut self, cx: &mut Context<'_>) -> bool;
 
+    /// Handles the Enter key (outside a text edit): completes the tool's job,
+    /// if it has one. Does nothing by default.
+    fn confirm(&mut self, _cx: &mut Context<'_>) {}
+
     /// Completes the gesture in progress as if the user had finished it, for
     /// example before switching tools.
     fn finish(&mut self, cx: &mut Context<'_>);
 
     /// Whether a gesture or text edit is in progress.
     fn is_active(&self) -> bool;
+
+    /// Whether the tool has finished its job (applied or cancelled a crop),
+    /// so the editor should return to the select tool. Never, by default.
+    fn is_done(&self) -> bool {
+        false
+    }
 
     /// The in-progress gesture, for the canvas to draw.
     fn preview(&self) -> Preview<'_>;
