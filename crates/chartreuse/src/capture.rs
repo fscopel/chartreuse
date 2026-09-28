@@ -27,12 +27,22 @@
 //!      from the snapshot: whole even where other windows covered it, with its
 //!      shadow and rounded corners. Cancelling ends the capture as for a
 //!      rectangle.
+//!
+//!    Where Chartreuse cannot select by itself, the platform's own capture
+//!    interface picks instead ([`Capture::capture_interactively`], Wayland's
+//!    Screenshot portal): for window captures on a platform that offers one,
+//!    since it offers one because it cannot list windows, and for rectangle
+//!    captures whose full-screen overlays could cover only one of several
+//!    displays. The picked image goes straight to step 4; cancelling ends the
+//!    capture.
 //! 4. The image ([`Message::Finished`]) is handed on as the settings'
 //!    post-capture behavior ([`App::config`], [`AfterCapture`]) says: it opens
 //!    in a new editor window (`editor::Message::Open`, the default), is copied
 //!    to the clipboard, or is saved into the save directory and copied
 //!    (`export::Target::SaveToDirectory` and `export::Target::Copy`, which
 //!    report their own failures).
+//!
+//! [`Capture::capture_interactively`]: chartreuse_platform::Capture::capture_interactively
 //!
 //! One capture runs at a time, selection included: a `Start` while one is in
 //! progress is ignored.
@@ -57,8 +67,8 @@ use chartreuse_core::window::{WindowId, WindowInfo};
 use chartreuse_core::{Error, Result};
 use chartreuse_imaging::Composite;
 use chartreuse_overlay::rectangle;
-use chartreuse_platform::DisplayCapture;
-use iced::futures::future::{self, FutureExt};
+use chartreuse_platform::{DisplayCapture, OverlayPlacement};
+use iced::futures::future::{self, BoxFuture, FutureExt};
 use iced::{Subscription, Task};
 
 use crate::alert::{self, Notice};
@@ -249,6 +259,16 @@ fn start(app: &mut App, mode: CaptureMode) -> Task<AppMessage> {
         return guidance;
     }
     app.capture.in_progress = Some(mode);
+    if let Some(picked) = platform_picker(app, mode) {
+        tracing::debug!(%mode, "the platform's capture interface picks what to capture");
+        return Task::perform(picked, |picked| {
+            AppMessage::Capture(match picked {
+                Ok(Some(image)) => Message::Finished(Ok(Arc::new(image))),
+                Ok(None) => Message::SelectionCancelled,
+                Err(error) => Message::Finished(Err(error)),
+            })
+        });
+    }
     let displays = app
         .platform
         .capture
@@ -267,6 +287,34 @@ fn start(app: &mut App, mode: CaptureMode) -> Task<AppMessage> {
             .boxed(),
     };
     Task::perform(scene, |scene| AppMessage::Capture(Message::Captured(scene)))
+}
+
+/// The platform's own capture interface, started, if a capture of `mode`
+/// needs it: a window capture wherever there is one (a platform has one
+/// because Chartreuse cannot list its windows), and a rectangle capture whose
+/// overlays cannot cover every display (full-screen overlays, on a desktop of
+/// several).
+fn platform_picker(
+    app: &App,
+    mode: CaptureMode,
+) -> Option<BoxFuture<'static, Result<Option<Image>>>> {
+    let needed = match mode {
+        CaptureMode::Display => false,
+        CaptureMode::Window => true,
+        CaptureMode::Rectangle => {
+            app.platform.overlay_style.placement() == OverlayPlacement::Fullscreen
+                && app
+                    .platform
+                    .displays
+                    .displays()
+                    .is_ok_and(|displays| displays.len() > 1)
+        }
+    };
+    if needed {
+        app.platform.capture.capture_interactively()
+    } else {
+        None
+    }
 }
 
 fn captured(app: &mut App, scene: Scene) -> Task<AppMessage> {
@@ -350,14 +398,15 @@ mod tests {
     use std::fs;
 
     use chartreuse_config::SaveDirectory;
+    use chartreuse_core::color::Rgba8;
     use chartreuse_core::display::{DisplayId, DisplayInfo};
     use chartreuse_core::geometry::{LogicalPoint, LogicalRect, PhysicalSize, ScaleFactor};
     use chartreuse_core::permission::PermissionStatus;
     use chartreuse_core::window::{WindowId, WindowOwner};
     use chartreuse_overlay::rectangle::Input;
     use chartreuse_overlay::window::Input as WindowInput;
-    use chartreuse_platform::fake::Fake;
-    use chartreuse_platform::{Capture, MenuAction, WindowList};
+    use chartreuse_platform::fake::{self, Fake};
+    use chartreuse_platform::{Capture, MenuAction, NativeWindow, OverlayWindowStyle, WindowList};
     use futures::executor::block_on;
     use futures::future::{self, BoxFuture, FutureExt};
     use futures::StreamExt;
@@ -894,5 +943,102 @@ mod tests {
             assert_eq!(app.capture.in_progress(), None, "{mode}");
             assert!(editor_images(&app).is_empty(), "{mode}");
         }
+    }
+
+    /// The fake's captures, plus a platform capture interface (as on
+    /// Wayland) in which the user picks the image, or cancels with `None`.
+    struct Picks(Fake, Option<Image>);
+
+    impl Capture for Picks {
+        fn capture_displays(&self) -> BoxFuture<'static, Result<Vec<DisplayCapture>>> {
+            self.0.capture_displays()
+        }
+
+        fn capture_window(&self, window: WindowId) -> BoxFuture<'static, Result<Image>> {
+            self.0.capture_window(window)
+        }
+
+        fn capture_interactively(&self) -> Option<BoxFuture<'static, Result<Option<Image>>>> {
+            Some(future::ready(Ok(self.1.clone())).boxed())
+        }
+    }
+
+    /// Full-screen overlays, as on Wayland.
+    struct FullScreen;
+
+    impl OverlayWindowStyle for FullScreen {
+        fn placement(&self) -> OverlayPlacement {
+            OverlayPlacement::Fullscreen
+        }
+
+        fn apply(&self, _window: NativeWindow<'_>, _display: &DisplayInfo) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    fn picked() -> Image {
+        Image::filled(PhysicalSize::new(3, 2), Rgba8::new(1, 2, 3, 255))
+    }
+
+    /// An app on `fake` whose platform picks `picked` interactively.
+    fn picking_app(fake: &Fake, picked: Option<Image>) -> App {
+        let (mut app, _default_desktop) = App::for_test();
+        app.platform = fake.platform();
+        app.platform.capture = Box::new(Picks(fake.clone(), picked));
+        app
+    }
+
+    #[test]
+    fn where_the_platform_picks_windows_a_window_capture_opens_what_it_picked() {
+        let fake = small_desktop();
+        let mut app = picking_app(&fake, Some(picked()));
+        // Such a platform cannot list windows; it is not asked to.
+        app.platform.window_list = Box::new(ListFails(Error::Unsupported("window lists")));
+        let _ = start(&mut app, CaptureMode::Window);
+
+        assert!(overlays(&app).is_empty(), "no overlays of Chartreuse's own");
+        assert_eq!(edited(&app), picked());
+        assert_eq!(windows(&app, WindowKind::Alert), 0);
+        assert_eq!(app.capture.in_progress(), None);
+    }
+
+    #[test]
+    fn a_cancelled_platform_pick_ends_the_capture_quietly() {
+        let fake = small_desktop();
+        let mut app = picking_app(&fake, None);
+        let _ = start(&mut app, CaptureMode::Window);
+
+        assert!(editor_images(&app).is_empty());
+        assert_eq!(windows(&app, WindowKind::Alert), 0);
+        assert_eq!(app.capture.in_progress(), None, "a new capture can start");
+    }
+
+    #[test]
+    fn rectangles_are_picked_by_the_platform_only_where_full_screen_overlays_miss_displays() {
+        // Two displays under full-screen overlays: the platform picks.
+        let two = small_desktop();
+        let mut app = picking_app(&two, Some(picked()));
+        app.platform.overlay_style = Arc::new(FullScreen);
+        let _ = start(&mut app, CaptureMode::Rectangle);
+        assert!(overlays(&app).is_empty());
+        assert_eq!(edited(&app), picked());
+
+        // One display: its full-screen overlay covers it.
+        let primary = fake::default_displays()
+            .into_iter()
+            .find(|display| display.is_primary)
+            .unwrap();
+        let one = Fake::with_world(vec![primary.clone()], Vec::new());
+        let mut app = picking_app(&one, Some(picked()));
+        app.platform.overlay_style = Arc::new(FullScreen);
+        let _ = start(&mut app, CaptureMode::Rectangle);
+        assert_eq!(covered(&app), HashSet::from([primary.id]));
+        assert!(editor_images(&app).is_empty());
+
+        // Overlays over each display cover them all.
+        let mut app = picking_app(&two, Some(picked()));
+        let _ = start(&mut app, CaptureMode::Rectangle);
+        assert_eq!(covered(&app), HashSet::from([DisplayId(1), DisplayId(2)]));
+        assert!(editor_images(&app).is_empty());
     }
 }

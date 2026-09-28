@@ -15,7 +15,9 @@
 //! above panels and other windows, and there is nothing left to apply. iced
 //! cannot choose the output of a full-screen window, so the compositor puts
 //! every overlay on the same one (usually the focused output): overlays
-//! serve single-output desktops only.
+//! serve single-output desktops only, and the app has rectangle captures on
+//! several outputs picked through the Screenshot portal instead (see
+//! [`WaylandCapture`](super::capture::WaylandCapture)).
 
 use chartreuse_core::display::DisplayInfo;
 use chartreuse_core::Result;

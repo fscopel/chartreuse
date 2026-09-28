@@ -25,11 +25,12 @@
 //!   from the screen, so whatever covers it is captured too.
 //! - Wayland overlays: winit offers no layer-shell, so overlays are
 //!   full-screen windows (see [`wayland`]'s overlay style) on the output the
-//!   compositor chooses, which covers single-output desktops only.
+//!   compositor chooses, which covers single-output desktops only. Rectangle
+//!   captures on several outputs use the Screenshot portal's interactive
+//!   picker instead.
 //! - Wayland windows: clients cannot list other clients' windows, so window
-//!   selection fails; window capture is the Screenshot portal's interactive
-//!   picker, which the app's window mode (listing windows first) does not
-//!   reach yet.
+//!   captures use the Screenshot portal's interactive picker too (GNOME,
+//!   KDE; wlroots portals capture the whole desktop).
 //! - Wayland screen capture: needs the Screenshot portal (GNOME, KDE, or
 //!   xdg-desktop-portal-wlr on wlroots compositors), whose first use asks the
 //!   user. The screenshot is assumed to cover the logical layout at one scale,
