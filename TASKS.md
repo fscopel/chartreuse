@@ -356,10 +356,10 @@ separate parallel agent.
 - [x] Highlighter
 - [x] Numbered step markers, with automatic numbering that stays correct when a marker
       is deleted
-- [ ] Blur / pixelate region (uses the 1E kernels)
-- [ ] Crop, undoable and non-destructive until export
-- [ ] Restyling panel: color, stroke width, and font size for the selected annotation
-- [ ] Flatten support and golden tests for each tool
+- [x] Blur / pixelate region (uses the 1E kernels)
+- [x] Crop, undoable and non-destructive until export
+- [x] Restyling panel: color, stroke width, and font size for the selected annotation
+- [x] Flatten support and golden tests for each tool
 
 ### 3C — Launch at login
 

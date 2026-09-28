@@ -584,14 +584,14 @@ mod canvas {
 
     use super::*;
     use crate::canvas::InputKind;
-    use crate::canvas::MARGIN;
     use crate::editor::testing::{self, at, click, drag, input, named, press, type_text};
     use crate::tools::ToolKind;
     use crate::{Editor, Message};
 
-    /// The canvas at [`testing::CANVAS`], cut down to the image (which the
-    /// fitted view shows 1:1, [`MARGIN`] from the canvas's corner).
-    fn canvas_image(editor: &Editor) -> Image {
+    /// The canvas at [`testing::CANVAS`], and where in it the editor's area
+    /// (the image, or its crop) is, which the fitted view must show 1:1 on
+    /// whole canvas pixels.
+    fn screenshot(editor: &Editor) -> (Image, PhysicalRect) {
         let mut renderer = block_on(<Renderer as Headless>::new(
             iced::Font::DEFAULT,
             iced::Pixels(16.0),
@@ -612,18 +612,27 @@ mod canvas {
             },
             mouse::Cursor::Unavailable,
         );
-        let canvas_width = testing::CANVAS.width as u32;
-        let size = iced::Size::new(canvas_width, testing::CANVAS.height as u32);
-        let screenshot = renderer.screenshot(size, 1.0, Color::BLACK);
-        let base = editor.document().base();
-        let margin = MARGIN as u32;
-        Image::from_fn(base.size(), |x, y| {
-            let i = (((y + margin) * canvas_width + x + margin) * 4) as usize;
-            let [r, g, b, a] = screenshot[i..i + 4] else {
-                unreachable!()
-            };
-            Rgba8::new(r, g, b, a)
-        })
+        let size = PhysicalSize::new(testing::CANVAS.width as u32, testing::CANVAS.height as u32);
+        let pixels =
+            renderer.screenshot(iced::Size::new(size.width, size.height), 1.0, Color::BLACK);
+        let area = editor.area();
+        let viewport = editor.viewport(testing::CANVAS);
+        assert_eq!(viewport.scale(), 1.0);
+        let corner = viewport.to_canvas(area.min());
+        assert_eq!((corner.x.fract(), corner.y.fract()), (0.0, 0.0));
+        let area = PhysicalRect::new(
+            corner.x as i32,
+            corner.y as i32,
+            area.width() as u32,
+            area.height() as u32,
+        );
+        (Image::new(size, pixels).unwrap(), area)
+    }
+
+    /// The part of the canvas showing the editor's area (see [`screenshot`]).
+    fn canvas_image(editor: &Editor) -> Image {
+        let (canvas, area) = screenshot(editor);
+        chartreuse_imaging::crop(&canvas, area).unwrap()
     }
 
     /// Ends a gesture's aftermath: the new annotation is selected, and a
@@ -673,6 +682,35 @@ mod canvas {
             },
         );
         deselect(editor);
+    }
+
+    /// A blur region from canvas `from` to `to`, in `mode`.
+    fn obscure(editor: &mut Editor, mode: BlurMode, from: iced::Point, to: iced::Point) {
+        editor.update(Message::BlurMode(mode));
+        editor.update(Message::Tool(ToolKind::Blur));
+        drag(editor, from, to);
+        deselect(editor);
+    }
+
+    /// The worst channel difference between `a` and `b` over their first
+    /// `width` columns, and how many pixels differ by more than 2.
+    fn compare(a: &Image, b: &Image, width: u32) -> (u8, usize) {
+        let (mut worst, mut differ) = (0, 0);
+        for y in 0..a.height() {
+            for x in 0..width {
+                let (a, b) = (a.pixel(x, y).unwrap(), b.pixel(x, y).unwrap());
+                let diff = a
+                    .to_array()
+                    .iter()
+                    .zip(b.to_array())
+                    .map(|(a, b)| a.abs_diff(b))
+                    .max()
+                    .unwrap();
+                worst = worst.max(diff);
+                differ += usize::from(diff > 2);
+            }
+        }
+        (worst, differ)
     }
 
     /// Canvas points along a wave from document `(x0, y)` to `(x1, y)`.
@@ -759,6 +797,20 @@ mod canvas {
         editor.update(Message::Tool(ToolKind::Select));
         click(&mut editor, at(300.0, 150.5));
         editor.update(Message::Delete);
+        // A pixelated region over the rectangle, the first line, and the
+        // highlighter, and a blurred one over the pen and it.
+        obscure(
+            &mut editor,
+            BlurMode::Pixelate,
+            at(40.0, 20.0),
+            at(130.4, 110.0),
+        );
+        obscure(
+            &mut editor,
+            BlurMode::Gaussian,
+            at(100.0, 90.0),
+            at(220.0, 296.0),
+        );
 
         editor.update(Message::Color(Rgba8::rgb(250, 250, 250)));
         editor.update(Message::FontSize(30.0));
@@ -777,28 +829,78 @@ mod canvas {
             at(140.0, 200.0),
             at(380.0, 230.0),
         );
-        assert_eq!(editor.document().annotations().len(), 11);
+        assert_eq!(editor.document().annotations().len(), 13);
 
         let flat = flatten(editor.document()).unwrap();
         let canvas = canvas_image(&editor);
-        let (mut worst, mut differ) = (0, 0);
-        for y in 0..flat.height() {
-            for x in 0..flat.width() - 1 {
-                let (a, b) = (flat.pixel(x, y).unwrap(), canvas.pixel(x, y).unwrap());
-                let diff = a
-                    .to_array()
-                    .iter()
-                    .zip(b.to_array())
-                    .map(|(a, b)| a.abs_diff(b))
-                    .max()
-                    .unwrap();
-                worst = worst.max(diff);
-                differ += usize::from(diff > 2);
-            }
-        }
+        let (worst, differ) = compare(&flat, &canvas, flat.width() - 1);
         // Rounding in blending leaves every pixel within 2; the stroker's
         // float math, run at different offsets, can shade a stray edge pixel
         // (measured: one, by 11) differently.
+        assert!(
+            worst <= 16 && differ <= 8,
+            "worst channel difference {worst}, {differ} pixels differ by more than 2"
+        );
+    }
+
+    #[test]
+    fn a_cropped_canvas_shows_just_what_flatten_exports() {
+        // As above, the base varies only down the image, so the renderer's
+        // one-pixel shift of the base image doesn't show.
+        let mut editor = Editor::new(Image::from_fn(PhysicalSize::new(400, 300), |_, y| {
+            Rgba8::rgb((y * 5 % 256) as u8, 120, (255 - y * 3 / 4) as u8)
+        }));
+        // Everything reaches past the crop's edges, which must cut it off.
+        draw(
+            &mut editor,
+            ToolKind::Line,
+            Rgba8::rgb(255, 214, 10),
+            8.0,
+            at(10.0, 60.0),
+            at(390.0, 200.0),
+        );
+        stroke(
+            &mut editor,
+            ToolKind::Highlighter,
+            Rgba8::rgb(10, 132, 255),
+            5.0,
+            &wave(20.0, 380.0, 120.0, 20.0),
+        );
+        editor.update(Message::Color(Rgba8::rgb(255, 59, 48)));
+        editor.update(Message::FontSize(40.0));
+        editor.update(Message::Tool(ToolKind::Text));
+        click(&mut editor, at(260.0, 150.0));
+        type_text(&mut editor, "Edge");
+        named(&mut editor, iced::keyboard::key::Named::Escape);
+        deselect(&mut editor);
+        obscure(
+            &mut editor,
+            BlurMode::Pixelate,
+            at(20.0, 180.0),
+            at(120.0, 290.0),
+        );
+
+        // A 300 × 200 crop: the fitted view shows it 1:1, centered on whole
+        // canvas pixels.
+        editor.update(Message::Tool(ToolKind::Crop));
+        drag(&mut editor, at(50.0, 40.0), at(350.0, 240.0));
+        named(&mut editor, iced::keyboard::key::Named::Enter);
+
+        let flat = flatten(editor.document()).unwrap();
+        assert_eq!((flat.width(), flat.height()), (300, 200));
+        let (screenshot, area) = screenshot(&editor);
+        // Around the crop, only the backdrop: everything is cut off at its
+        // edges.
+        let backdrop = screenshot.pixel(0, 0).unwrap();
+        for y in 0..screenshot.height() {
+            for x in 0..screenshot.width() {
+                if !area.contains(PhysicalPoint::new(x as i32, y as i32)) {
+                    assert_eq!(screenshot.pixel(x, y).unwrap(), backdrop, "at ({x}, {y})");
+                }
+            }
+        }
+        let canvas = chartreuse_imaging::crop(&screenshot, area).unwrap();
+        let (worst, differ) = compare(&flat, &canvas, flat.width());
         assert!(
             worst <= 16 && differ <= 8,
             "worst channel difference {worst}, {differ} pixels differ by more than 2"

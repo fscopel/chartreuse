@@ -20,8 +20,8 @@ use chartreuse_core::geometry::PhysicalSize;
 use chartreuse_core::image::Image;
 use chartreuse_editor::flatten::flatten;
 use chartreuse_editor::model::{
-    Arrow, Command, Document, Ellipse, Line, Point, Polyline, Rect, Rectangle, Shape, StepMarker,
-    Style, Text,
+    Arrow, BlurMode, BlurRegion, Command, Document, Ellipse, Line, Point, Polyline, Rect,
+    Rectangle, Shape, StepMarker, Style, Text,
 };
 use chartreuse_imaging::{decode, encode, Format};
 
@@ -98,6 +98,17 @@ fn pen(points: &[(f32, f32)]) -> Shape {
 
 fn text(x: f32, y: f32, content: &str) -> Shape {
     Shape::Text(Text::new(Point::new(x, y), content))
+}
+
+fn blur(ax: f32, ay: f32, bx: f32, by: f32, mode: BlurMode) -> (Shape, Style) {
+    let region = BlurRegion {
+        rect: Rect::from_corners(Point::new(ax, ay), Point::new(bx, by)),
+    };
+    let style = Style {
+        blur: mode,
+        ..Style::default()
+    };
+    (Shape::Blur(region), style)
 }
 
 fn flattened(base: Image, shapes: impl IntoIterator<Item = (Shape, Style)>) -> Image {
@@ -300,6 +311,43 @@ fn text_annotations() {
         ],
     );
     check("text", &image);
+}
+
+#[test]
+fn blur_regions() {
+    let image = flattened(
+        base(160, 96),
+        [
+            (text(6.0, 6.0, "Secret"), text_style(RED, 26.0)),
+            (line(4.0, 70.0, 150.0, 50.0), style(YELLOW, 6.0)),
+            // Pixelated over the text, at fractional edges that round to
+            // whole pixels.
+            blur(4.4, 4.0, 90.6, 40.0, BlurMode::Pixelate),
+            // Blurred, off the right edge of the image and over the
+            // pixelated one: it blurs the mosaic too.
+            blur(70.0, 20.0, 180.0, 80.0, BlurMode::Gaussian),
+            // Drawn above both, so neither touches it.
+            (arrow(20.0, 88.0, 120.0, 30.0), style(BLUE, 4.0)),
+        ],
+    );
+    check("blur", &image);
+}
+
+#[test]
+fn crop() {
+    let mut document = Document::new(base(128, 96));
+    document.add(rectangle(8.0, 8.0, 100.0, 70.0), style(BLUE, 6.0));
+    document.add(text(40.0, 30.0, "Crop"), text_style(RED, 30.0));
+    let (shape, pixelate) = blur(60.0, 50.0, 120.0, 90.0, BlurMode::Pixelate);
+    document.add(shape, pixelate);
+    // Annotations run past the crop's edges, cut off with the image.
+    document.apply(Command::SetCrop(Some(Rect::from_corners(
+        Point::new(24.0, 16.0),
+        Point::new(112.0, 80.0),
+    ))));
+    let image = flatten(&document).expect("flattens");
+    assert_eq!((image.width(), image.height()), (88, 64));
+    check("crop", &image);
 }
 
 #[test]
