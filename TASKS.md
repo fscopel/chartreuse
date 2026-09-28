@@ -397,10 +397,52 @@ Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/windows
 - [x] Clipboard with `CF_DIBV5` and a registered PNG format
 - [x] `IFileOpenDialog` / `IFileSaveDialog`
 - [x] Launch at login using the `Run` key (if 3C is in scope)
-- [ ] Integration pass: every M2–M7 flow works on Windows
-  - [ ] Overlay placement on mixed-DPI setups: `chartreuse-overlay::setup` uses logical
+- [ ] Integration pass: every M2–M7 flow works on Windows. The code has been audited
+      and fixed statically; these steps need a Windows 10 2004+ or 11 machine, ideally
+      with two monitors at different scales (e.g. 100% and 150%) and the second one
+      left of or above the primary, so it has negative coordinates. Build with the
+      MSVC toolchain (`cargo build -p chartreuse`) and run it from a terminal with
+      `$env:RUST_LOG = "debug"` unless a step says otherwise.
+  - [x] Overlay placement on mixed-DPI setups: `chartreuse-overlay::setup` uses logical
         `Position::Specific`, which winit converts with one scale factor on Windows;
         place overlays in physical pixels per monitor
+  - [ ] Start `target\debug\chartreuse.exe` from Explorer: the tray icon appears in the
+        accent color, no taskbar button, and no console window stays open (a flash is
+        expected). From a terminal the logs stay in the terminal.
+  - [ ] Tray: left click, right click, and keyboard (Win+B, Enter) open the menu; each
+        entry works; Quit exits. Restart Explorer (Task Manager): the icon comes back.
+  - [ ] Hotkeys: the three defaults (shown in Settings) start their captures, also
+        while another app is in front; a combination another app holds is reported.
+  - [ ] Display capture: one image with every monitor at its place and native
+        resolution, no gaps on the mixed-DPI pair; no yellow capture border and no
+        Chartreuse overlay in it.
+  - [ ] Rectangle capture: each overlay covers exactly its monitor (no offset, gap, or
+        overlap at the mixed-DPI seam), sits above the taskbar, shows in neither the
+        taskbar nor Alt+Tab, and takes Escape at once; a drag across both monitors
+        crops the same area as on screen; Escape cancels.
+  - [ ] Window capture: the highlight follows the pointer on both monitors, including
+        windows spanning them and UWP apps (Settings, Calculator); a click captures the
+        whole window even where others cover it; minimized windows, windows on other
+        virtual desktops, and Chartreuse's own are not offered.
+  - [ ] Editor: Ctrl+Z, Ctrl+Shift+Z, Delete, and text entry; Save shows the Windows
+        save dialog with PNG, JPEG, and WebP; Copy pastes into Paint and Word, keeping
+        transparency where the target supports it.
+  - [ ] Open from clipboard (an image copied from a browser or the Snipping Tool),
+        an empty clipboard reported, and Open from file.
+  - [ ] Settings: the window comes to the front; the recorder records Ctrl, Alt,
+        Shift, and Win combinations; the save folder picker works; editing
+        `%APPDATA%\io.jennings.chartreuse.dev\settings.toml` by hand is picked up.
+  - [ ] Open at login: turn it on in Settings (an `io.jennings.chartreuse.dev` value
+        appears under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`), then sign
+        out and back in: Chartreuse starts, its tray icon appears, and no console
+        window stays open. Turned off in Task Manager's Startup apps, it shows as off
+        in Settings; turned off in Settings, the value is gone.
+  - [ ] Command line while running: `chartreuse.exe capture rectangle` in PowerShell
+        exits 0 and its overlays take the keyboard focus; during a capture it exits 1
+        with the reason; without a command it says Chartreuse is already running. The
+        README's desktop shortcut works.
+  - [ ] Change a monitor's scale, or unplug one, while running: the next capture uses
+        the new layout.
 
 ### 4B — Linux (M9)
 
@@ -417,18 +459,55 @@ Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/linux/`
   - [x] Override-redirect overlays
   - [x] `XGrabKey` hotkeys
   - [x] `CLIPBOARD` selection
-- [ ] Wayland (after X11 is working, per PLAN.md; subsystems in parallel)
+- [x] Wayland (after X11 is working, per PLAN.md; subsystems in parallel)
   - [x] Displays from `wl_output`, `xdg-output`, and fractional scale
   - [x] Display capture through the Screenshot portal
-  - [ ] Window capture through the interactive portal, or `ext-image-copy-capture`
-        where available
-  - [ ] `wlr-layer-shell` overlays, with a full-screen `xdg_toplevel` fallback
+  - [x] Window capture through the Screenshot portal's interactive picker. Not done:
+        `ext-image-copy-capture`, which would capture a window without the picker
+        where the compositor offers it
+  - [x] Overlays as a full-screen `xdg_toplevel` on one output (several outputs use the
+        portal's picker). Not done: `wlr-layer-shell` overlays, which winit cannot reach
   - [x] GlobalShortcuts portal
   - [x] Clipboard through data-control (`ext-data-control`, `wlr-data-control`), and the
         X11 selection through XWayland on GNOME (not `wl_data_device`, which needs the
         focused window's connection)
-- [ ] Integration pass for each backend
-- [ ] Document the limitations of each compositor
+- [ ] Integration pass for each backend. The code has been audited and fixed
+      statically; these steps need real desktops: X11 (e.g. Xfce or KDE Plasma on
+      X11), and Wayland on GNOME 48+, KDE Plasma 6, and Sway, each with two monitors
+      where possible (fractional and mixed scales on Wayland). Run the build from a
+      terminal with `RUST_LOG=debug`. The backend is Wayland when `WAYLAND_DISPLAY`
+      is set, else X11.
+  - [ ] Both: the tray icon appears on KDE, Xfce, GNOME with the AppIndicator
+        extension, and Waybar, and its menu works; on GNOME without the extension an
+        alert says the tray icon is unavailable. Open from file and Save show the
+        desktop's own dialog (FileChooser portal). The command line works while running
+        (the socket is in `$XDG_RUNTIME_DIR/io.jennings.chartreuse.dev/`).
+  - [ ] Both, Open at login: turning it on in Settings creates
+        `$XDG_CONFIG_HOME/autostart/io.jennings.chartreuse.dev.desktop` (`~/.config`);
+        after signing out and back in, Chartreuse starts and its tray icon appears.
+        Turning it off removes the entry.
+  - [ ] X11: the default hotkeys start captures, and a combination another client
+        grabbed is reported. Display capture places every monitor with `Xft.dpi` set
+        (e.g. 144). Rectangle overlays cover each monitor exactly, above panels and
+        full-screen windows, and take Escape without a click. Window capture with a
+        compositor running captures a covered window whole; without one (Xfce with
+        compositing off) it captures the screen area. Copy pastes into GIMP or
+        LibreOffice, also after Chartreuse quits (with a clipboard manager).
+  - [ ] Wayland, display capture: the first capture asks through the portal; a
+        refusal shows an alert (not the macOS guidance); an allowed capture places every
+        output at fractional (125%, 150%) and mixed scales.
+  - [ ] Wayland, window capture: the portal's picker opens (GNOME, KDE) and the pick
+        opens in an editor; cancelling it ends the capture without an alert. On Sway,
+        the whole desktop opens.
+  - [ ] Wayland, rectangle capture: on one output the overlay is full screen above
+        the top bar or panels and takes Escape (GNOME's focus-stealing prevention may
+        withhold the focus); the crop matches the selection. On two outputs the
+        portal's picker opens instead.
+  - [ ] Wayland hotkeys: GNOME 48+ and KDE show the GlobalShortcuts dialog and then
+        trigger; on Sway a shortcut bound as in the README runs the command.
+  - [ ] Wayland clipboard: Copy pastes into another app, and Open from clipboard reads
+        one, on GNOME (through XWayland) and on KDE and Sway (data-control).
+- [x] Document the limitations of each compositor (README, *Platform support*)
 
 ### 4C — CLI entry point and single instance
 

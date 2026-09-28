@@ -1,8 +1,8 @@
 # Chartreuse
 
-A cross-platform screenshot and annotation tool that lives in the menu bar. See
-[PLAN.md](PLAN.md) for what it does and how it is built, and [TASKS.md](TASKS.md) for
-the build checklist.
+A cross-platform screenshot and annotation tool that lives in the menu bar or the
+system tray. See [PLAN.md](PLAN.md) for what it does and how it is built, and
+[TASKS.md](TASKS.md) for the build checklist.
 
 ## Command line
 
@@ -66,10 +66,103 @@ Use the full path to the executable if it is not on the shortcut daemon's `PATH`
 
 - **Windows**: right-click the desktop, *New → Shortcut*, with the location
   `"C:\path\to\chartreuse.exe" capture rectangle`. In the shortcut's *Properties*,
-  set a *Shortcut key* (Windows makes it Ctrl+Alt+*key*). Windows honors shortcut
-  keys only for shortcuts on the desktop or in the Start menu folder.
+  set a *Shortcut key* (Windows makes it Ctrl+Alt+*key*), and *Run: Minimized*, since
+  the command line is a console program and would flash a console window. Windows
+  honors shortcut keys only for shortcuts on the desktop or in the Start menu folder.
 - **macOS**: Chartreuse's own hotkeys cover this. Launchers such as Shortcuts or
   Raycast can run the bundle's executable as above.
+
+## Platform support
+
+macOS is the primary platform. The Windows and Linux backends are implemented, except
+for layer-shell overlays and `ext-image-copy-capture` window capture on Wayland (see
+[Wayland](#wayland)), and CI builds and tests them, but they have not yet been tried
+on real machines: the limitations below come from the APIs, protocols, and portals
+they use. The [integration pass checklists](TASKS.md#4a--windows-m8) in TASKS.md list
+what to try.
+
+| | macOS | Windows | Linux, X11 | Linux, Wayland |
+|---|---|---|---|---|
+| Tray | Menu bar item | Notification-area icon | StatusNotifierItem | StatusNotifierItem |
+| Hotkeys | Carbon hot keys | `RegisterHotKey` | `XGrabKey` | GlobalShortcuts portal |
+| Display capture | ScreenCaptureKit | Windows.Graphics.Capture, else `BitBlt` | MIT-SHM | Screenshot portal |
+| Rectangle selection | Overlay per display | Overlay per display | Overlay per display | Full-screen overlay; the portal's picker on several displays |
+| Window selection | Overlay per display | Overlay per display | Overlay per display | The portal's picker |
+| Window capture | ScreenCaptureKit, with shadow | Windows.Graphics.Capture, else `PrintWindow`; no shadow | XComposite | The portal's picker |
+| Clipboard | `NSPasteboard` | PNG and `CF_DIBV5` | `CLIPBOARD` selection | Data-control protocols; XWayland on GNOME |
+| File dialogs | `NSOpenPanel`, `NSSavePanel` | `IFileOpenDialog`, `IFileSaveDialog` | FileChooser portal | FileChooser portal |
+| Settings file | `~/Library/Application Support/<bundle id>/settings.toml` | `%APPDATA%\<bundle id>\settings.toml` | `$XDG_CONFIG_HOME/<bundle id>/settings.toml` (`~/.config`) | same as X11 |
+
+The bundle id is `io.jennings.chartreuse` for releases and `io.jennings.chartreuse.dev`
+for development builds.
+
+### Windows
+
+- Windows 10 or later. Overlays keep out of captures only on Windows 10 2004 and
+  later (`WDA_EXCLUDEFROMCAPTURE`); earlier, a capture started while one is on screen
+  shows it. Other Chartreuse windows on screen (editors, settings) are captured.
+- Window captures have no drop shadow (DWM draws it outside the window, where neither
+  capture API reaches), and on Windows 11 their rounded corners are transparent.
+- Monitors of mixed DPI: each monitor's logical size is its pixel size divided by its
+  own scale, and neighbours are laid edge to edge, so in an L or a ring of mixed
+  scales logical rectangles can overlap slightly. Overlays are placed in pixels, over
+  their monitor.
+- Chartreuse is a console program, so that the command line reports to the terminal
+  and its exit status is waited for. Started from Explorer, a shortcut, or a login
+  item, it closes the console window Windows gives it; the window may flash.
+- The Per-Monitor DPI Awareness v2 manifest is embedded only by the MSVC toolchain;
+  GNU builds fall back to winit's DPI awareness.
+
+### Linux
+
+Chartreuse picks the backend the way winit does: Wayland when `WAYLAND_DISPLAY` (or
+`WAYLAND_SOCKET`) is set, else X11. Unsetting `WAYLAND_DISPLAY` runs it under
+XWayland with the X11 backend, which sees only XWayland's windows and pixels.
+
+- Tray: needs a StatusNotifierItem host. KDE Plasma, Xfce, Cinnamon, MATE, LXQt,
+  Budgie, and Waybar have one; GNOME needs the AppIndicator extension. There is no
+  XEmbed fallback: without a host Chartreuse says the tray icon is unavailable, and
+  is reached through its hotkeys and the command line.
+- File dialogs: need xdg-desktop-portal with a FileChooser backend (GNOME, KDE, or
+  `xdg-desktop-portal-gtk`; xdg-desktop-portal-wlr has none, so install the GTK one
+  beside it).
+- Hotkeys that another program holds are reported (X11) or left to the desktop to
+  resolve (Wayland).
+
+#### X11
+
+- One scale factor for the whole desktop: the `Xft.dpi` setting every major desktop
+  makes (or `WINIT_X11_SCALE_FACTOR`). Without it winit gives each monitor a factor
+  of its own from its physical size, and overlays on monitors whose factor differs
+  from the primary's are misplaced.
+- Window capture needs a compositing manager to capture a window whole. Without one
+  a window is read from the screen, with whatever covers it.
+
+#### Wayland
+
+No Wayland client may read other clients' pixels, list their windows, or place its
+own windows, so the desktop's portals do much of the work:
+
+- Display capture takes the Screenshot portal's screenshot of the whole desktop,
+  which the desktop may ask the user to allow the first time. A refusal is reported.
+  The screenshot is assumed to show the desktop's logical layout at one scale, as
+  GNOME's and grim's do.
+- Rectangle selection: winit offers no layer-shell, so the overlay is a full-screen
+  window on the output the compositor chooses. That covers a single-output desktop;
+  with several outputs, rectangle captures go to the portal's own picker instead.
+- Window selection is the portal's own picker.
+- The portal saves each screenshot as a file (GNOME in the Pictures folder), which
+  Chartreuse deletes once read.
+
+| | GNOME | KDE Plasma | Sway, Hyprland, and others |
+|---|---|---|---|
+| Portal picker (window captures; rectangles on several outputs) | GNOME's screenshot UI: an area, a window, or a screen | The portal's dialog | xdg-desktop-portal-wlr has none and captures the whole desktop; other portals vary |
+| Hotkeys | GlobalShortcuts portal, GNOME 48 and later | GlobalShortcuts portal | Hyprland's portal has it; on Sway and others [bind a shortcut](#binding-a-desktop-shortcut) |
+| Clipboard | Through XWayland | `ext-data-control` / `wlr-data-control` | `ext-data-control` / `wlr-data-control` |
+| Tray | AppIndicator extension | Built in | Panels with a tray (Waybar, …) |
+
+The GlobalShortcuts portal may ask the user to confirm the hotkeys or pick others; its
+failures are only logged.
 
 ## Development setup (macOS)
 

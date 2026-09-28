@@ -10,36 +10,9 @@
 //!
 //! # Limitations
 //!
-//! Known from the protocols and libraries the backends use; not yet checked
-//! on every desktop.
-//!
-//! - Tray: needs a StatusNotifierItem host. KDE Plasma, Xfce, Cinnamon, MATE,
-//!   LXQt, Budgie, and Waybar have one; GNOME needs the AppIndicator
-//!   extension. There is no fallback to the older XEmbed tray.
-//! - X11 scaling: the desktop has one scale factor (`Xft.dpi`, as every
-//!   major desktop sets it). Without a DPI setting winit derives a factor per
-//!   monitor from its physical size; the display model then uses the primary
-//!   monitor's for all, and overlays on monitors whose factor differs are
-//!   misplaced.
-//! - X11 window capture: without a compositing manager, a window is read
-//!   from the screen, so whatever covers it is captured too.
-//! - Wayland overlays: winit offers no layer-shell, so overlays are
-//!   full-screen windows (see [`wayland`]'s overlay style) on the output the
-//!   compositor chooses, which covers single-output desktops only. Rectangle
-//!   captures on several outputs use the Screenshot portal's interactive
-//!   picker instead.
-//! - Wayland windows: clients cannot list other clients' windows, so window
-//!   captures use the Screenshot portal's interactive picker too (GNOME,
-//!   KDE; wlroots portals capture the whole desktop).
-//! - Wayland screen capture: needs the Screenshot portal (GNOME, KDE, or
-//!   xdg-desktop-portal-wlr on wlroots compositors), whose first use asks the
-//!   user. The screenshot is assumed to cover the logical layout at one scale,
-//!   as GNOME's and grim's do.
-//! - Wayland hotkeys: need the GlobalShortcuts portal (GNOME 48 and later,
-//!   KDE Plasma, Hyprland; not xdg-desktop-portal-wlr), which may ask the user
-//!   to confirm or change the triggers. Failures are only logged.
-//! - Wayland clipboard: the data-control protocols (KDE, wlroots); on GNOME
-//!   through XWayland.
+//! What each desktop and session type supports, as far as the protocols and
+//! libraries the backends use allow, is listed in one place: the README's
+//! *Platform support* section. The backends' module docs give the reasons.
 
 #[cfg(all(unix, not(target_os = "macos")))]
 mod blocking;
