@@ -3,6 +3,7 @@
 //! its unit tests run on macOS and Windows too.
 
 pub mod autostart;
+pub mod background;
 pub mod ewmh;
 pub mod file_chooser;
 pub mod keysym;

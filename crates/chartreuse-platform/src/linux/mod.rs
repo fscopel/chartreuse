@@ -4,9 +4,10 @@
 //! Both backends share the tray ([`tray`], a StatusNotifierItem), the file
 //! dialogs ([`file_chooser`], the FileChooser portal), the clipboard
 //! ([`clipboard`]), and launch at login ([`launch_at_login`], an XDG autostart
-//! entry). The backends' pure logic lives in [`logic`], which uses
-//! no Linux-only crate: test builds on other hosts compile it (and the session
-//! detection here), so its unit tests run on every development machine.
+//! entry, which inside a Flatpak the Background portal writes). The
+//! backends' pure logic lives in [`logic`], which uses no Linux-only crate:
+//! test builds on other hosts compile it (and the session detection here), so
+//! its unit tests run on every development machine.
 //!
 //! # Limitations
 //!
@@ -14,6 +15,8 @@
 //! libraries the backends use allow, is listed in one place: the README's
 //! *Platform support* section. The backends' module docs give the reasons.
 
+#[cfg(all(unix, not(target_os = "macos")))]
+mod background;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod blocking;
 #[cfg(all(unix, not(target_os = "macos")))]

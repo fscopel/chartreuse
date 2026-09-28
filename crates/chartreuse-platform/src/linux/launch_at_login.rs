@@ -10,11 +10,17 @@
 //! or `X-GNOME-Autostart-enabled=false` in it (or delete it): it then counts
 //! as off. Turning it on rewrites it, and turning it off deletes it.
 //!
-//! Only std file I/O, so test builds on every host compile this and its tests
-//! run everywhere.
+//! Inside a Flatpak, the sandbox has its own `$XDG_CONFIG_HOME`, which the
+//! host's session never reads, and the executable's path is the sandbox's.
+//! There the Background portal writes the entry instead, on the host, running
+//! the app with `flatpak run` (`background.rs`). The sandbox cannot read that
+//! entry back, so [`status`](crate::LaunchAtLogin::status) fails and the app
+//! keeps the setting as last chosen in it: turning the entry off in the
+//! desktop's startup settings does not show in Chartreuse.
 //!
-//! Limitation: inside a Flatpak sandbox the entry would name the sandbox's
-//! path; a Flatpak build needs the Background portal instead.
+//! Apart from the trait implementation, which calls the portal, only std file
+//! I/O, so test builds on every host compile this and its tests run
+//! everywhere.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -23,29 +29,56 @@ use std::path::Path;
 use chartreuse_core::{flavor, Error, Result};
 
 use super::logic::autostart;
-use crate::launch_at_login::LaunchAtLogin;
 
-/// The [`LaunchAtLogin`] backend of X11 and Wayland sessions.
-#[derive(Debug, Default)]
-pub struct LinuxLaunchAtLogin;
+/// Present in every Flatpak sandbox, and nowhere else.
+const FLATPAK_INFO: &str = "/.flatpak-info";
+
+/// The [`LaunchAtLogin`](crate::LaunchAtLogin) backend of X11 and Wayland
+/// sessions.
+#[derive(Debug)]
+pub struct LinuxLaunchAtLogin {
+    /// Whether Chartreuse runs inside a Flatpak sandbox.
+    flatpak: bool,
+}
 
 impl LinuxLaunchAtLogin {
     pub fn new() -> Self {
-        Self
+        Self {
+            flatpak: Path::new(FLATPAK_INFO).exists(),
+        }
     }
 }
 
-impl LaunchAtLogin for LinuxLaunchAtLogin {
+impl Default for LinuxLaunchAtLogin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+impl crate::LaunchAtLogin for LinuxLaunchAtLogin {
     fn status(&self) -> Result<bool> {
+        if self.flatpak {
+            return Err(Error::Platform(
+                "inside a Flatpak, the autostart entry is outside the sandbox and cannot be \
+                 read"
+                    .into(),
+            ));
+        }
         status(&entry_path()?)
     }
 
     fn set(&self, enabled: bool) -> Result<()> {
+        let exe = || {
+            std::env::current_exe()
+                .map_err(|error| Error::io("finding the Chartreuse executable", error))
+        };
+        if self.flatpak {
+            return super::background::request_autostart(enabled, utf8(&exe()?)?);
+        }
         let path = entry_path()?;
         if enabled {
-            let exe = std::env::current_exe()
-                .map_err(|error| Error::io("finding the Chartreuse executable", error))?;
-            enable(&path, &exe)
+            enable(&path, &exe()?)
         } else {
             disable(&path)
         }
@@ -77,15 +110,20 @@ fn status(path: &Path) -> Result<bool> {
     }
 }
 
-/// Writes the entry at `path`, starting `exe`, creating its folder if need be.
-fn enable(path: &Path, exe: &Path) -> Result<()> {
-    let exe = exe.to_str().ok_or_else(|| {
+/// `exe` as UTF-8, which autostart entries (and the portal) need.
+fn utf8(exe: &Path) -> Result<&str> {
+    exe.to_str().ok_or_else(|| {
         Error::Platform(format!(
             "the path of the Chartreuse executable is not valid UTF-8, which autostart entries \
              need: {}",
             exe.display()
         ))
-    })?;
+    })
+}
+
+/// Writes the entry at `path`, starting `exe`, creating its folder if need be.
+fn enable(path: &Path, exe: &Path) -> Result<()> {
+    let exe = utf8(exe)?;
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)
             .map_err(|error| Error::io(format!("creating {}", folder.display()), error))?;

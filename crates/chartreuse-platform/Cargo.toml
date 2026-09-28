@@ -76,11 +76,13 @@ arboard = { version = "3.6.1", default-features = false, features = [
     "image-data",
     "wayland-data-control",
 ] }
-# XDG desktop portals (FileChooser, Screenshot, GlobalShortcuts), over zbus.
-# `async-io` runs zbus on the async-io runtime iced's Linux theme detection
-# already pulls in, instead of adding tokio.
+# XDG desktop portals (FileChooser, Screenshot, GlobalShortcuts, and inside a
+# Flatpak Background, for launch at login), over zbus. `async-io` runs zbus on
+# the async-io runtime iced's Linux theme detection already pulls in, instead
+# of adding tokio.
 ashpd = { version = "0.13.13", default-features = false, features = [
     "async-io",
+    "background",
     "file_chooser",
     "global_shortcuts",
     "screenshot",

@@ -10,7 +10,9 @@ use chartreuse_core::Result;
 /// reads it afresh every time instead of remembering what `set` was told.
 ///
 /// Call from the main thread (iced `boot`/`update`). Both calls are quick: at
-/// most a registry value, a small file, or one ServiceManagement call.
+/// most a registry value, a small file, or one ServiceManagement call. The
+/// exception is `set` inside a Flatpak, one Background portal request, which
+/// waits for the user if the desktop asks them first.
 pub trait LaunchAtLogin {
     /// Whether the OS will start this app at the next login. A login item
     /// the user has to approve, or has turned off in the OS's own settings,

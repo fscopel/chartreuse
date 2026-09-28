@@ -486,6 +486,12 @@ Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/linux/`
         `$XDG_CONFIG_HOME/autostart/io.jennings.chartreuse.dev.desktop` (`~/.config`);
         after signing out and back in, Chartreuse starts and its tray icon appears.
         Turning it off removes the entry.
+  - [ ] Both, Open at login inside a Flatpak (the Background portal): turning it on in
+        Settings creates the host's `~/.config/autostart/io.jennings.chartreuse.desktop`,
+        which runs `flatpak run`; after signing out and back in, Chartreuse starts.
+        Turning it off removes the entry. With running in the background denied
+        (`flatpak permission-set background background io.jennings.chartreuse no`),
+        turning it on fails, and the note under the toggle says how to allow it.
   - [ ] X11: the default hotkeys start captures, and a combination another client
         grabbed is reported. Display capture places every monitor with `Xft.dpi` set
         (e.g. 144). Rectangle overlays cover each monitor exactly, above panels and
