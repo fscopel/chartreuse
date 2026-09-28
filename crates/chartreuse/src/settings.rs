@@ -25,7 +25,8 @@
 //!   platform's file dialogs cannot choose a folder. Then the file name
 //!   pattern ([`FileNamePattern`]), with a preview of the name a capture taken
 //!   now would get. Text that is not valid says why under its field and
-//!   changes nothing until it is.
+//!   changes nothing until it is. Then the default format ([`SaveFormat`]):
+//!   that of saves without asking, and the one the save dialog suggests.
 //!
 //! ## Adding a setting
 //!
@@ -96,7 +97,7 @@ use std::time::{Duration, SystemTime};
 use chartreuse_config::pattern::DEFAULT_PATTERN;
 use chartreuse_config::{
     default_save_directory, AfterCapture, FileNamePattern, Hotkeys, RelativeSaveDirectory,
-    SaveDirectory, Settings,
+    SaveDirectory, SaveFormat, Settings,
 };
 use chartreuse_core::capture::CaptureMode;
 use chartreuse_core::hotkey::Hotkey;
@@ -104,7 +105,9 @@ use chartreuse_core::{Error, Result};
 use chrono::NaiveDateTime;
 use iced::futures::channel::mpsc;
 use iced::keyboard::{self, key::Physical};
-use iced::widget::{button, column, container, radio, row, scrollable, space, text, text_input};
+use iced::widget::{
+    button, column, container, pick_list, radio, row, scrollable, space, text, text_input,
+};
 use iced::{event, window, Element, Length, Size, Subscription, Task};
 use parking_lot::Mutex;
 use recorder::Recorded;
@@ -176,6 +179,8 @@ pub enum Message {
     FileName(String),
     /// The file name's Default button.
     DefaultFileName,
+    /// A default save format was chosen.
+    SaveFormat(SaveFormat),
     /// A post-capture behavior was chosen.
     AfterCapture(AfterCapture),
     /// The settings file changed on disk, other than by the app itself.
@@ -470,6 +475,7 @@ pub fn update(app: &mut App, message: Message) -> Task<AppMessage> {
             change(app, |config| config.file_name = FileNamePattern::default())
         }
         Message::AfterCapture(after) => change(app, move |config| config.after_capture = after),
+        Message::SaveFormat(format) => change(app, move |config| config.save_format = format),
         Message::FileChanged => {
             app.settings.reload = true;
             sync(app)
@@ -558,13 +564,20 @@ pub fn view(app: &App, window: window::Id) -> Element<'_, AppMessage> {
         note(Note::Hint(TOKENS_HINT.to_owned())),
     ]
     .spacing(4);
+    let format = pick_list(SaveFormat::ALL, Some(config.save_format), |format| {
+        AppMessage::Settings(Message::SaveFormat(format))
+    });
 
     let mut content = column![
         section("Hotkeys", hotkeys),
         section("Capturing", [setting("After a capture", after_capture)]),
         section(
             "Saving",
-            [setting("Folder", folder), setting("File name", file_name)]
+            [
+                setting("Folder", folder),
+                setting("File name", file_name),
+                setting("Default format", format),
+            ]
         ),
     ]
     .spacing(24);
@@ -1112,6 +1125,22 @@ mod tests {
             Note::Hint("For example: Chartreuse 2026-09-25 at 14.03.07.png".into())
         );
         assert_eq!(on_disk(&app).file_name, FileNamePattern::default());
+    }
+
+    #[test]
+    fn choosing_a_default_format_saves_it_and_the_preview_takes_its_extension() {
+        let (mut app, _fake, _temp) = app_with_file();
+        send(&mut app, Message::Open);
+
+        send(&mut app, Message::SaveFormat(SaveFormat::Jpeg));
+
+        assert_eq!(app.config.save_format, SaveFormat::Jpeg);
+        assert_eq!(on_disk(&app), app.config);
+        assert!(!changed(file(&app)), "the app's own save");
+        assert_eq!(
+            file_name_note(&app.config, &shown(&app).file_name, afternoon()),
+            Note::Hint("For example: Chartreuse 2026-09-25 at 14.03.07.jpg".into())
+        );
     }
 
     #[test]
