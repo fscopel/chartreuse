@@ -11,6 +11,7 @@ mod icon;
 mod info_plist;
 mod launch;
 mod macos_release;
+mod notary;
 mod release;
 mod sign;
 mod upload_release;
@@ -37,13 +38,15 @@ Commands:
   release   release build for this OS, archived into target/dist (emptied
             first) as Chartreuse-<version>-<os>-<arch>: on macOS a disk image
             (.dmg) of a universal, release-flavor Chartreuse.app, the app and
-            the image signed with $CHARTREUSE_RELEASE_SIGN_IDENTITY; on
-            Windows (.zip) and Linux (.tar.gz) the executable with LICENSE,
-            README.md, and the app icon (chartreuse.ico;
-            icons/hicolor/<size>x<size>/apps/*.png)
+            the image signed with $CHARTREUSE_RELEASE_SIGN_IDENTITY, notarized
+            ($CHARTREUSE_NOTARY_PROFILE, or $CHARTREUSE_NOTARY_KEY_ID,
+            $CHARTREUSE_NOTARY_ISSUER, and $CHARTREUSE_NOTARY_KEY_PATH or
+            $CHARTREUSE_NOTARY_KEY), stapled, and verified; on Windows (.zip)
+            and Linux (.tar.gz) the executable with LICENSE, README.md, and
+            the app icon (chartreuse.ico; icons/hicolor/<size>x<size>/apps/*.png)
             --allow-ad-hoc  macOS: when the identity is unset, sign the app
-                            ad-hoc and leave the disk image unsigned; its
-                            name ends in -unsigned
+                            ad-hoc, notarize nothing, and leave the disk image
+                            unsigned; its name ends in -unsigned
   upload-release <tag>
             attach every file in target/dist to the GitHub release <tag>
             (v<version>, matching Cargo.toml) with the GitHub CLI, replacing

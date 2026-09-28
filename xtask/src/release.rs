@@ -2,8 +2,8 @@
 //! into `target/dist/` (which `cargo xtask upload-release` uploads).
 //!
 //! - macOS ([`crate::macos_release`]): a universal, release-flavor
-//!   `Chartreuse.app` signed with the Developer ID identity, in a signed disk
-//!   image.
+//!   `Chartreuse.app` signed with the Developer ID identity and notarized, in
+//!   a signed, notarized disk image (both stapled).
 //! - Windows and Linux: the optimized, release-flavor executable with the
 //!   license, the readme, and the app icon, in a `.zip` (Windows) or `.tar.gz`
 //!   (Linux) holding one top-level directory. The icon is `chartreuse.ico` on

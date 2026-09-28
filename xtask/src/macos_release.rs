@@ -1,21 +1,30 @@
 //! `cargo xtask release` on macOS: a universal (Apple silicon and Intel),
-//! release-flavor `Chartreuse.app`, signed with the Developer ID identity, in a
-//! signed disk image.
+//! release-flavor `Chartreuse.app`, signed with the Developer ID identity and
+//! notarized, in a signed and notarized disk image.
 //!
-//! 1. Build `chartreuse` for every [`TARGETS`] triple (installing missing
+//! 1. Resolve the signing identity and the notarization credentials
+//!    ([`crate::notary`]), so a missing variable fails before the build.
+//! 2. Build `chartreuse` for every [`TARGETS`] triple (installing missing
 //!    targets with `rustup`) and merge the builds with `lipo`.
-//! 2. Assemble `Chartreuse.app` around the universal executable and sign it
+//! 3. Assemble `Chartreuse.app` around the universal executable and sign it
 //!    ([`crate::sign`]: hardened runtime, secure timestamp, entitlements,
 //!    nested code inside-out).
-//! 3. Image the app beside an `/Applications` link with `hdiutil` and sign
-//!    the disk image.
-//! 4. Verify the signatures.
+//! 4. Notarize the app (zipped) and staple its ticket, so the copy users drag
+//!    out of the disk image carries a ticket of its own and Gatekeeper can
+//!    check it offline. (Notarizing only the disk image covers the app, but
+//!    staples the ticket to the image alone.)
+//! 5. Image the app beside an `/Applications` link with `hdiutil`, then sign,
+//!    notarize, and staple the disk image.
+//! 6. Verify: `codesign --verify --strict`, Gatekeeper (`spctl`), and the
+//!    stapled tickets (`stapler validate`), for the app and the disk image.
 //!
-//! With `--allow-ad-hoc` and no identity, the app is signed ad-hoc and the
-//! disk image is left unsigned (an ad-hoc signature on a disk image vouches for
-//! nothing), and its name ends in `-unsigned`. The disk image is built either
-//! way, so the release workflow and a developer without a certificate exercise
-//! the same packaging.
+//! With `--allow-ad-hoc` and no identity, the app is signed ad-hoc, nothing is
+//! notarized, the disk image is left unsigned (an ad-hoc signature on a disk
+//! image vouches for nothing), and its name ends in `-unsigned`; only the
+//! checks that can pass without Apple's involvement run. The disk image is
+//! built either way, so the release workflow and a developer without a
+//! certificate exercise the same packaging. `--allow-ad-hoc` never skips
+//! notarization of a build signed with a Developer ID.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -24,9 +33,10 @@ use chartreuse_core::flavor::Flavor;
 
 use crate::bundle::{self, Bundle, Profile};
 use crate::dmg;
+use crate::notary::{self, Credentials};
 use crate::release::{archive_stem, VERSION};
 use crate::sign::{Identity, SignOptions};
-use crate::util::{capture, run, target_dir, tool, Context, Error, Result, Step};
+use crate::util::{capture, run, target_dir, tool, Context, Error, PrivateDir, Result, Step};
 
 /// The environment variable naming the release (Developer ID) signing identity.
 pub const RELEASE_IDENTITY_ENV: &str = "CHARTREUSE_RELEASE_SIGN_IDENTITY";
@@ -98,21 +108,43 @@ pub fn disk_image_codesign_args(dmg: &Path, identity: &str) -> Vec<OsString> {
     ]
 }
 
-/// The checks run on the finished app and disk image. Ad-hoc builds only get
-/// what can pass without a Developer ID signature.
+/// The checks run on the finished app and disk image. Builds that were not
+/// notarized (ad-hoc) only get the checks that can pass without Apple.
 #[must_use]
-pub fn verification_steps(app: &Path, dmg: &Path, signed: bool) -> Vec<Step> {
+pub fn verification_steps(app: &Path, dmg: &Path, notarized: bool) -> Vec<Step> {
     let mut steps = vec![Step::new(
         "verify the app's signature, nested code included",
         "codesign",
         &[&"--verify", &"--strict", &"--deep", &"--verbose=2", &app],
     )];
-    if signed {
-        steps.push(Step::new(
-            "verify the disk image's signature",
-            "codesign",
-            &[&"--verify", &"--strict", &"--verbose=2", &dmg],
-        ));
+    if notarized {
+        steps.extend([
+            Step::new(
+                "check that Gatekeeper accepts the app",
+                "spctl",
+                &[&"-a", &"-t", &"exec", &"-vv", &app],
+            ),
+            Step::new(
+                "verify the disk image's signature",
+                "codesign",
+                &[&"--verify", &"--strict", &"--verbose=2", &dmg],
+            ),
+            Step::new(
+                "check that Gatekeeper accepts the disk image",
+                "spctl",
+                &[
+                    &"-a",
+                    &"-t",
+                    &"open",
+                    &"--context",
+                    &"context:primary-signature",
+                    &"-vv",
+                    &dmg,
+                ],
+            ),
+            notary::validate_step(app),
+            notary::validate_step(dmg),
+        ]);
     }
     steps.push(Step::new(
         "verify the disk image's checksum",
@@ -120,6 +152,34 @@ pub fn verification_steps(app: &Path, dmg: &Path, signed: bool) -> Vec<Step> {
         &[&"verify", &dmg],
     ));
     steps
+}
+
+/// The notarization credentials, required for a build signed with a
+/// Developer ID.
+fn notary_credentials() -> Result<Credentials> {
+    let credentials = Credentials::from_env(|name| std::env::var(name).ok()).map_err(|error| {
+        Error(format!(
+            "{error}\n{RELEASE_IDENTITY_ENV} is set, so the release is notarized \
+             (--allow-ad-hoc only applies while it is unset)."
+        ))
+    })?;
+    credentials.check()?;
+    Ok(credentials)
+}
+
+/// Zips `app` with `ditto`, which keeps the code signature, for notarization.
+fn zip_app(app: &Path, zip: &Path) -> Result {
+    run(tool("ditto")
+        .args(["-c", "-k", "--sequesterRsrc", "--keepParent"])
+        .arg(app)
+        .arg(zip))
+}
+
+/// Notarizes `file` (submitted as `submission`: the file itself, or a zip of
+/// an app), then staples the ticket to `file`.
+fn notarize_and_staple(file: &Path, submission: &Path, auth: &[OsString]) -> Result {
+    notary::notarize(submission, auth)?;
+    run(&mut notary::staple_step(file).command())
 }
 
 /// Installs the [`TARGETS`] that the pinned toolchain lacks.
@@ -187,8 +247,8 @@ pub fn release(allow_ad_hoc: bool, dist: &Path, extension: &str) -> Result<PathB
         std::env::var(RELEASE_IDENTITY_ENV).ok().as_deref(),
         allow_ad_hoc,
     )?;
-    let signing_name = match &identity {
-        Identity::Named(name) => Some(name.clone()),
+    let signing = match &identity {
+        Identity::Named(name) => Some((name.clone(), notary_credentials()?)),
         _ => None,
     };
 
@@ -197,7 +257,7 @@ pub fn release(allow_ad_hoc: bool, dist: &Path, extension: &str) -> Result<PathB
         flavor: Flavor::Release,
         profile: Profile::Release,
         sign_options: SignOptions {
-            timestamp: signing_name.is_some(),
+            timestamp: signing.is_some(),
         },
         identity,
         identity_env: RELEASE_IDENTITY_ENV,
@@ -205,7 +265,20 @@ pub fn release(allow_ad_hoc: bool, dist: &Path, extension: &str) -> Result<PathB
     .package(&dir)?;
     check_universal(&layout.executable)?;
 
-    let stem = archive_stem(VERSION, "macos", UNIVERSAL, signing_name.is_none());
+    // Holds an API key written from the environment, and the zipped app.
+    let work = PrivateDir::create("chartreuse-release")?;
+    let auth = match &signing {
+        Some((_, credentials)) => {
+            let auth = credentials.auth_args(work.path())?;
+            let zip = work.path().join("Chartreuse.zip");
+            zip_app(&layout.app, &zip)?;
+            notarize_and_staple(&layout.app, &zip, &auth)?;
+            Some(auth)
+        }
+        None => None,
+    };
+
+    let stem = archive_stem(VERSION, "macos", UNIVERSAL, signing.is_none());
     let image = dist.join(format!("{stem}.{extension}"));
     dmg::create(
         &layout.app,
@@ -213,11 +286,13 @@ pub fn release(allow_ad_hoc: bool, dist: &Path, extension: &str) -> Result<PathB
         &dir.join("dmg"),
         &image,
     )?;
-    if let Some(name) = &signing_name {
+    if let (Some((name, _)), Some(auth)) = (&signing, &auth) {
         run(tool("codesign").args(disk_image_codesign_args(&image, name)))?;
+        notarize_and_staple(&image, &image, auth)?;
     }
+    drop(work);
 
-    for step in verification_steps(&layout.app, &image, signing_name.is_some()) {
+    for step in verification_steps(&layout.app, &image, signing.is_some()) {
         eprintln!("release: {}", step.what);
         run(&mut step.command())?;
     }
@@ -305,18 +380,44 @@ mod tests {
         );
     }
 
+    fn commands(steps: &[Step]) -> Vec<String> {
+        steps
+            .iter()
+            .map(|step| {
+                let args: Vec<_> = step.args.iter().map(|a| a.to_string_lossy()).collect();
+                format!("{} {}", step.program, args.join(" "))
+            })
+            .collect()
+    }
+
     #[test]
-    fn ad_hoc_builds_skip_the_disk_image_signature_check() {
-        let app = Path::new("/t/Chartreuse.app");
-        let dmg = Path::new("/d/Chartreuse.dmg");
-        let verifies = |steps: &[Step], path: &Path| {
-            steps
-                .iter()
-                .any(|step| step.program == "codesign" && step.args.contains(&OsString::from(path)))
-        };
-        let signed = verification_steps(app, dmg, true);
-        assert!(verifies(&signed, app) && verifies(&signed, dmg));
-        let ad_hoc = verification_steps(app, dmg, false);
-        assert!(verifies(&ad_hoc, app) && !verifies(&ad_hoc, dmg));
+    fn notarized_builds_are_checked_by_gatekeeper_and_stapler() {
+        let steps = verification_steps(Path::new("/t/Chartreuse.app"), Path::new("/d/C.dmg"), true);
+        assert_eq!(
+            commands(&steps),
+            [
+                "codesign --verify --strict --deep --verbose=2 /t/Chartreuse.app",
+                "spctl -a -t exec -vv /t/Chartreuse.app",
+                "codesign --verify --strict --verbose=2 /d/C.dmg",
+                "spctl -a -t open --context context:primary-signature -vv /d/C.dmg",
+                "xcrun stapler validate /t/Chartreuse.app",
+                "xcrun stapler validate /d/C.dmg",
+                "hdiutil verify /d/C.dmg",
+            ]
+        );
+    }
+
+    #[test]
+    fn ad_hoc_builds_skip_the_checks_only_apple_can_pass() {
+        // Gatekeeper rejects ad-hoc code, and nothing is stapled.
+        let steps =
+            verification_steps(Path::new("/t/Chartreuse.app"), Path::new("/d/C.dmg"), false);
+        assert_eq!(
+            commands(&steps),
+            [
+                "codesign --verify --strict --deep --verbose=2 /t/Chartreuse.app",
+                "hdiutil verify /d/C.dmg",
+            ]
+        );
     }
 }
