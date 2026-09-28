@@ -26,8 +26,7 @@ Not checked in; rendered from `app-icon.svg` in the flavor's accent:
 
 - macOS: `Contents/Resources/AppIcon.icns`, from an `.iconset` of every size from 16 to
   1024 pixels (`cargo xtask bundle`, `cargo xtask release`).
-- Windows: `chartreuse.ico` in the release archive, with 16, 24, 32, 48, 64, and
-  256-pixel PNG entries. Embedding it in the executable is left to the installer track.
+- Windows: nothing; the executable carries the checked-in app icon (below).
 - Linux: `icons/hicolor/<size>x<size>/apps/io.jennings.chartreuse.png` in the release
   archive, from 16 to 512 pixels, ready to install under `/usr/share/icons/`.
 
@@ -37,13 +36,15 @@ expect small icons to fill their image, and the margin and shadow would blur the
 
 ## Compiled into the app: `generated/`
 
-Checked in, so the app can `include_bytes!` them without rendering SVG at build time.
+Checked in, so the app can `include_bytes!` or embed them without rendering SVG at build
+time.
 After editing an SVG, run `cargo xtask icons` to regenerate the directory; the xtask
 tests fail while it is stale.
 
 | File | Use |
 | --- | --- |
 | `status-item-template.png`, `status-item-template@2x.png` | macOS status item: 18 points at 1x (18 px) and 2x (36 px), loaded as a template `NSImage` |
+| `app-release.ico`, `app-development.ico` | Windows app icon, embedded as the executable's icon resource by `crates/chartreuse/build.rs` (Explorer, the taskbar, and shortcuts show it): PNG entries at 16, 24, 32, 48, 64, and 256 px |
 | `tray-release.ico`, `tray-development.ico` | Windows notification-area icon (`Shell_NotifyIcon`): PNG entries at 16, 20, 24, 32, 40, and 48 px, the small icon from 100% to 300% scale |
 | `tray-release-<size>.png`, `tray-development-<size>.png` | Linux tray (StatusNotifierItem `IconPixmap`): 16, 22, 24, 32, 48, and 64 px |
 

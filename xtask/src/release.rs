@@ -5,10 +5,11 @@
 //!   `Chartreuse.app` signed with the Developer ID identity and notarized, in
 //!   a signed, notarized disk image (both stapled).
 //! - Windows and Linux: the optimized, release-flavor executable with the
-//!   license, the readme, and the app icon, in a `.zip` (Windows) or `.tar.gz`
-//!   (Linux) holding one top-level directory. The icon is `chartreuse.ico` on
-//!   Windows and an `icons/hicolor/<size>x<size>/apps/<app ID>.png` tree on
-//!   Linux. Tracks 5B and 5C add an installer and packages, which install it.
+//!   license and the readme, in a `.zip` (Windows) or `.tar.gz` (Linux)
+//!   holding one top-level directory. The Windows executable carries the app
+//!   icon as a resource; the Linux archive adds an
+//!   `icons/hicolor/<size>x<size>/apps/<app ID>.png` tree. Tracks 5B and 5C
+//!   add an installer and packages, which install it.
 //!
 //! Archives are named `Chartreuse-<version>-<os>-<arch>` (the arch is
 //! `universal` on macOS), with `-unsigned` appended for an ad-hoc signed macOS
@@ -29,9 +30,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Files from the workspace root shipped next to the Windows and Linux
 /// executable.
 const DOCUMENTS: [&str; 2] = ["LICENSE", "README.md"];
-
-/// The Windows app icon's name in the archive.
-const WINDOWS_ICON: &str = "chartreuse.ico";
 
 /// The file extension of an OS's release archive.
 pub fn archive_extension(os: &str) -> Result<&'static str> {
@@ -102,14 +100,12 @@ fn release_executable(os: &str, dist: &Path, extension: &str) -> Result<PathBuf>
             .context(|| format!("copying {}", from.display()))?;
     }
     let flavor = Flavor::Release;
-    match os {
-        "windows" => icon::build_ico(flavor.accent(), &staging.join(WINDOWS_ICON))?,
-        "linux" => icon::write_linux_icons(
+    if os == "linux" {
+        icon::write_linux_icons(
             flavor.accent(),
             &staging.join("icons").join("hicolor"),
             flavor.bundle_id(),
-        )?,
-        _ => {}
+        )?;
     }
 
     let archive = dist.join(format!("{stem}.{extension}"));

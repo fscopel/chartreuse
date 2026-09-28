@@ -43,8 +43,9 @@ Commands:
             ($CHARTREUSE_NOTARY_PROFILE, or $CHARTREUSE_NOTARY_KEY_ID,
             $CHARTREUSE_NOTARY_ISSUER, and $CHARTREUSE_NOTARY_KEY_PATH or
             $CHARTREUSE_NOTARY_KEY), stapled, and verified; on Windows (.zip)
-            and Linux (.tar.gz) the executable with LICENSE, README.md, and
-            the app icon (chartreuse.ico; icons/hicolor/<size>x<size>/apps/*.png)
+            and Linux (.tar.gz) the executable (on Windows with the app icon
+            embedded) with LICENSE and README.md, and on Linux the app icon
+            (icons/hicolor/<size>x<size>/apps/*.png)
             --allow-ad-hoc  macOS: when the identity is unset, sign the app
                             ad-hoc, notarize nothing, and leave the disk image
                             unsigned; its name ends in -unsigned
