@@ -13,8 +13,11 @@ pub fn entry_path(
     home: Option<&OsStr>,
     bundle_id: &str,
 ) -> Option<PathBuf> {
+    // On Unix, where this runs, a path is absolute exactly when it has a
+    // root. `is_absolute` would also demand a drive on Windows, where this
+    // logic is built and tested too.
     fn absolute(value: Option<&OsStr>) -> Option<&Path> {
-        value.map(Path::new).filter(|path| path.is_absolute())
+        value.map(Path::new).filter(|path| path.has_root())
     }
     let config = absolute(xdg_config_home)
         .map(Path::to_path_buf)
