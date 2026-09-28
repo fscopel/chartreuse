@@ -406,10 +406,10 @@ Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/windows
 
 Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/linux/`
 
-- [ ] Shared between X11 and Wayland (parallel)
+- [x] Shared between X11 and Wayland (parallel)
   - [x] StatusNotifierItem tray over D-Bus
   - [x] File dialogs through the FileChooser portal
-  - [ ] Launch at login via XDG autostart (if 3C is in scope)
+  - [x] Launch at login via XDG autostart (if 3C is in scope)
 - [x] X11 (parallel subsystems)
   - [x] RandR displays
   - [x] `XShmGetImage` capture

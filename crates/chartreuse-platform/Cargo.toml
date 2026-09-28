@@ -108,6 +108,7 @@ x11rb = { version = "0.13.2", features = [
 
 [dev-dependencies]
 chartreuse-imaging.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

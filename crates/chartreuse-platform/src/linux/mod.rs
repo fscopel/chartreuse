@@ -2,8 +2,9 @@
 //! runtime from the session type.
 //!
 //! Both backends share the tray ([`tray`], a StatusNotifierItem), the file
-//! dialogs ([`file_chooser`], the FileChooser portal), and the clipboard
-//! ([`clipboard`]). The backends' pure logic lives in [`logic`], which uses
+//! dialogs ([`file_chooser`], the FileChooser portal), the clipboard
+//! ([`clipboard`]), and launch at login ([`launch_at_login`], an XDG autostart
+//! entry). The backends' pure logic lives in [`logic`], which uses
 //! no Linux-only crate: test builds on other hosts compile it (and the session
 //! detection here), so its unit tests run on every development machine.
 //!
@@ -45,7 +46,7 @@ mod blocking;
 mod clipboard;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod file_chooser;
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
 mod launch_at_login;
 #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
 mod logic;

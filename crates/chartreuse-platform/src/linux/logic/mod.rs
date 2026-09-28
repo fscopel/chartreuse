@@ -2,6 +2,7 @@
 //! only `chartreuse-core` types, so test builds on every host compile it and
 //! its unit tests run on macOS and Windows too.
 
+pub mod autostart;
 pub mod ewmh;
 pub mod file_chooser;
 pub mod keysym;

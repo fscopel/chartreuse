@@ -697,6 +697,7 @@ dependencies = [
  "objc2-uniform-type-identifiers 0.3.2",
  "parking_lot",
  "raw-window-handle",
+ "tempfile",
  "tracing",
  "wayland-client",
  "wayland-protocols",
