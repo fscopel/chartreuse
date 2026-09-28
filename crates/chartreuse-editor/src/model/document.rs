@@ -685,6 +685,34 @@ mod tests {
     }
 
     #[test]
+    fn restyle_changes_each_field_only_where_the_kind_draws_with_it() {
+        let mut doc = document();
+        let a = doc.add(line(0.0, 0.0, 1.0, 1.0), Style::default());
+        let t = doc.add(text("hi"), Style::default());
+        let red = Rgba8::rgb(255, 0, 0);
+        assert!(doc.apply(Command::Restyle {
+            ids: vec![a, t],
+            patch: StylePatch {
+                color: Some(red),
+                font_size: Some(40.0),
+                ..StylePatch::default()
+            },
+        }));
+        let (line_style, text_style) = (doc.get(a).unwrap().style, doc.get(t).unwrap().style);
+        assert_eq!((line_style.color, line_style.font_size), (red, 24.0));
+        assert_eq!((text_style.color, text_style.font_size), (red, 40.0));
+
+        // A stroke width means nothing to text: nothing to record.
+        assert!(!doc.apply(Command::Restyle {
+            ids: vec![t],
+            patch: StylePatch {
+                stroke_width: Some(10.0),
+                ..StylePatch::default()
+            },
+        }));
+    }
+
+    #[test]
     fn delete_restores_positions_ids_and_selection_on_undo() {
         let mut doc = document();
         let all: Vec<_> = [0.0, 10.0, 20.0, 30.0, 40.0]

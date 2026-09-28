@@ -1,5 +1,18 @@
-//! The editor's toolbar: tools, crop controls, style controls (including how
-//! blur regions obscure), undo and redo, and zoom.
+//! The editor's toolbar: tools, crop controls, the style controls (color,
+//! stroke width, font size, and how blur regions obscure), undo and redo, and
+//! zoom.
+//!
+//! # Style controls
+//!
+//! The style controls restyle the selected annotations (each field only where
+//! the kind draws with it; see [`Shape::style_fields`]) and set the style for
+//! new ones. A control shows only if it applies to something in play: the
+//! selected annotations, or the ones the active tool makes (with the select
+//! tool and nothing selected, all of them; with the crop tool, none). It shows
+//! the value the selected annotations it applies to share (nothing, if they
+//! differ), or else the style for new annotations.
+//!
+//! [`Shape::style_fields`]: crate::model::Shape::style_fields
 //!
 //! Its accent (the active tool, the chosen color swatch) is the theme's
 //! primary color; the app's theme sets that to the build flavor's accent.
@@ -12,7 +25,7 @@ use iced::{Alignment, Background, Border, Element, Theme};
 
 use crate::canvas;
 use crate::editor::{Message, ZoomChange};
-use crate::model::BlurMode;
+use crate::model::{Annotation, BlurMode, Style, StyleFields};
 use crate::tools::{Preview, ToolKind};
 use crate::Editor;
 
@@ -61,10 +74,77 @@ const fn pixels<const N: usize>(values: [f32; N]) -> [Pixels; N] {
 const STROKE_OPTIONS: [Pixels; STROKE_WIDTHS.len()] = pixels(STROKE_WIDTHS);
 const FONT_OPTIONS: [Pixels; FONT_SIZES.len()] = pixels(FONT_SIZES);
 
+/// What a style control shows (see the [module docs](self#style-controls)).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Control<T> {
+    /// It applies to nothing in play.
+    Hidden,
+    /// Its value, or `None` if the selected annotations' values differ.
+    Shown(Option<T>),
+}
+
+/// The style controls' state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Panel {
+    color: Control<Rgba8>,
+    stroke_width: Control<f32>,
+    font_size: Control<f32>,
+    blur: Control<BlurMode>,
+}
+
+impl Panel {
+    /// The style controls for `editor` (see the
+    /// [module docs](self#style-controls)).
+    fn of(editor: &Editor) -> Self {
+        let tool = editor.tool();
+        let selected: Vec<_> = match tool {
+            ToolKind::Crop => Vec::new(),
+            _ => editor.document().selected().collect(),
+        };
+        let made = match tool {
+            ToolKind::Select if !selected.is_empty() => StyleFields::NONE,
+            tool => tool.style_fields(),
+        };
+        let style = editor.style();
+        Self {
+            color: control(&selected, made, |f| f.color, &style, |s| s.color),
+            stroke_width: control(
+                &selected,
+                made,
+                |f| f.stroke_width,
+                &style,
+                |s| s.stroke_width,
+            ),
+            font_size: control(&selected, made, |f| f.font_size, &style, |s| s.font_size),
+            blur: control(&selected, made, |f| f.blur, &style, |s| s.blur),
+        }
+    }
+}
+
+/// One control: the value `field` of `selected`'s annotations that `uses` it
+/// share, else `style`'s if the tool's new annotations (`made`) use it.
+fn control<T: Copy + PartialEq>(
+    selected: &[&Annotation],
+    made: StyleFields,
+    uses: impl Fn(StyleFields) -> bool,
+    style: &Style,
+    field: impl Fn(&Style) -> T,
+) -> Control<T> {
+    let mut values = selected
+        .iter()
+        .filter(|annotation| uses(annotation.shape.style_fields()))
+        .map(|annotation| field(&annotation.style));
+    match values.next() {
+        Some(first) => Control::Shown(values.all(|value| value == first).then_some(first)),
+        None if uses(made) => Control::Shown(Some(field(style))),
+        None => Control::Hidden,
+    }
+}
+
 /// The toolbar for `editor`.
 pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
-    let style = editor.style();
     let document = editor.document();
+    let panel = Panel::of(editor);
 
     let tools = group(ToolKind::ALL.into_iter().map(|kind| {
         let active = kind == editor.tool();
@@ -108,39 +188,49 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
     }
     let crop = (!crop.is_empty()).then(|| group(crop));
 
-    let colors = group(
-        COLORS
-            .into_iter()
-            .map(|color| swatch(color, color == style.color)),
-    );
-
-    let sizes = group([
-        text("Stroke").into(),
-        pick_list(
-            &STROKE_OPTIONS[..],
-            Some(Pixels(style.stroke_width)),
-            |Pixels(width)| Message::StrokeWidth(width),
+    let colors = shown(panel.color).map(|chosen| {
+        group(
+            COLORS
+                .into_iter()
+                .map(|color| swatch(color, Some(color) == chosen)),
         )
-        .into(),
-        text("Font").into(),
-        pick_list(
-            &FONT_OPTIONS[..],
-            Some(Pixels(style.font_size)),
-            |Pixels(size)| Message::FontSize(size),
-        )
-        .into(),
-    ]);
+    });
 
-    let blur = group(BlurMode::ALL.into_iter().map(|mode| {
-        button(text(mode.label()))
-            .on_press(Message::BlurMode(mode))
-            .style(if mode == style.blur {
-                button::primary
-            } else {
-                button::secondary
+    let mut sizes = Vec::new();
+    if let Some(width) = shown(panel.stroke_width) {
+        sizes.push(text("Stroke").into());
+        sizes.push(
+            pick_list(&STROKE_OPTIONS[..], width.map(Pixels), |Pixels(width)| {
+                Message::StrokeWidth(width)
             })
-            .into()
-    }));
+            .placeholder("Mixed")
+            .into(),
+        );
+    }
+    if let Some(size) = shown(panel.font_size) {
+        sizes.push(text("Font").into());
+        sizes.push(
+            pick_list(&FONT_OPTIONS[..], size.map(Pixels), |Pixels(size)| {
+                Message::FontSize(size)
+            })
+            .placeholder("Mixed")
+            .into(),
+        );
+    }
+    let sizes = (!sizes.is_empty()).then(|| group(sizes));
+
+    let blur = shown(panel.blur).map(|chosen| {
+        group(BlurMode::ALL.into_iter().map(|mode| {
+            button(text(mode.label()))
+                .on_press(Message::BlurMode(mode))
+                .style(if Some(mode) == chosen {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .into()
+        }))
+    });
 
     let history = group([
         button(text("Undo"))
@@ -172,13 +262,25 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
 
     row![tools]
         .push(crop)
-        .extend([colors, sizes, blur, history, zoom].map(Element::from))
+        .push(colors)
+        .push(sizes)
+        .push(blur)
+        .push(history)
+        .push(zoom)
         .spacing(GROUP_SPACING)
         .padding(8)
         .align_y(Alignment::Center)
         .wrap()
         .vertical_spacing(8)
         .into()
+}
+
+/// A shown control's value; `None` if it is hidden.
+const fn shown<T: Copy>(control: Control<T>) -> Option<Option<T>> {
+    match control {
+        Control::Hidden => None,
+        Control::Shown(value) => Some(value),
+    }
 }
 
 /// Controls laid out as one toolbar group.
@@ -219,4 +321,121 @@ fn swatch<'a>(color: Rgba8, chosen: bool) -> Element<'a, Message> {
             }
         })
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use iced::keyboard::{self, key::Named};
+
+    use super::*;
+    use crate::editor::testing::{at, click, drag, editor, modifiers, named, type_text};
+
+    const BLUE: Rgba8 = COLORS[4];
+
+    /// A line in the default style and a blue text of font size 40, with
+    /// nothing selected, back in the select tool.
+    fn line_and_text() -> Editor {
+        let mut editor = editor();
+        editor.update(Message::Tool(ToolKind::Line));
+        drag(&mut editor, at(10.0, 10.0), at(200.0, 10.0));
+        named(&mut editor, Named::Escape);
+        editor.update(Message::Color(BLUE));
+        editor.update(Message::FontSize(40.0));
+        editor.update(Message::Tool(ToolKind::Text));
+        click(&mut editor, at(20.0, 100.0));
+        type_text(&mut editor, "Hi");
+        editor.update(Message::Tool(ToolKind::Select));
+        named(&mut editor, Named::Escape);
+        editor
+    }
+
+    #[test]
+    fn with_nothing_selected_the_select_tool_shows_every_control() {
+        let editor = line_and_text();
+        let style = editor.style();
+        assert_eq!(
+            Panel::of(&editor),
+            Panel {
+                color: Control::Shown(Some(BLUE)),
+                stroke_width: Control::Shown(Some(style.stroke_width)),
+                font_size: Control::Shown(Some(40.0)),
+                blur: Control::Shown(Some(BlurMode::Pixelate)),
+            }
+        );
+    }
+
+    #[test]
+    fn a_selection_shows_what_its_kinds_use_and_the_values_they_share() {
+        let mut editor = line_and_text();
+        click(&mut editor, at(100.0, 10.0));
+        let line = Panel::of(&editor);
+        assert_eq!(line.color, Control::Shown(Some(Style::DEFAULT_COLOR)));
+        assert_eq!(line.stroke_width, Control::Shown(Some(4.0)));
+        assert_eq!(line.font_size, Control::Hidden, "not for a line");
+        assert_eq!(line.blur, Control::Hidden);
+
+        // Shift-click the text too: the colors differ; each size comes from
+        // the one kind that has it.
+        modifiers(&mut editor, keyboard::Modifiers::SHIFT);
+        click(&mut editor, at(25.0, 110.0));
+        assert_eq!(editor.document().selection().len(), 2);
+        assert_eq!(
+            Panel::of(&editor),
+            Panel {
+                color: Control::Shown(None),
+                stroke_width: Control::Shown(Some(4.0)),
+                font_size: Control::Shown(Some(40.0)),
+                blur: Control::Hidden,
+            }
+        );
+
+        // Changing the font size restyles only the text.
+        editor.update(Message::FontSize(64.0));
+        let [line, text] = editor.document().annotations() else {
+            panic!("expected two annotations");
+        };
+        let unchanged = Style::default().font_size;
+        assert_eq!(
+            (line.style.font_size, text.style.font_size),
+            (unchanged, 64.0)
+        );
+    }
+
+    #[test]
+    fn drawing_tools_show_what_they_make_along_with_the_selection() {
+        let mut editor = line_and_text();
+        editor.update(Message::Tool(ToolKind::Blur));
+        let blur = Panel::of(&editor);
+        assert_eq!(blur.blur, Control::Shown(Some(BlurMode::Pixelate)));
+        assert_eq!(
+            (blur.color, blur.stroke_width, blur.font_size),
+            (Control::Hidden, Control::Hidden, Control::Hidden)
+        );
+
+        // A region just drawn is selected: blurring it shows as its mode.
+        drag(&mut editor, at(100.0, 100.0), at(200.0, 200.0));
+        editor.update(Message::BlurMode(BlurMode::Gaussian));
+        editor.update(Message::Tool(ToolKind::Step));
+        let step = Panel::of(&editor);
+        assert_eq!(step.blur, Control::Shown(Some(BlurMode::Gaussian)));
+        assert_eq!(step.font_size, Control::Shown(Some(40.0)), "for new steps");
+        assert_eq!(step.stroke_width, Control::Hidden);
+    }
+
+    #[test]
+    fn the_crop_tool_shows_no_style_controls() {
+        let mut editor = line_and_text();
+        click(&mut editor, at(100.0, 10.0));
+        editor.update(Message::Tool(ToolKind::Crop));
+        let hidden = Panel::of(&editor);
+        assert_eq!(
+            hidden,
+            Panel {
+                color: Control::Hidden,
+                stroke_width: Control::Hidden,
+                font_size: Control::Hidden,
+                blur: Control::Hidden,
+            }
+        );
+    }
 }

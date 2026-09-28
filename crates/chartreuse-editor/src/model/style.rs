@@ -3,8 +3,10 @@
 use chartreuse_core::color::Rgba8;
 
 /// How an annotation is drawn. Every annotation carries a full `Style`; each
-/// kind reads the fields that apply to it (text ignores `stroke_width`, strokes
-/// ignore `font_size`), so restyling a mixed selection is uniform.
+/// kind reads the fields that apply to it
+/// ([`Shape::style_fields`](super::Shape::style_fields): text ignores
+/// `stroke_width`, strokes ignore `font_size`), and restyling changes only
+/// those.
 ///
 /// Lengths are in base-image pixels, like all document coordinates. They should
 /// be finite and positive; geometry treats non-positive values as zero.
@@ -96,6 +98,67 @@ pub struct StylePatch {
     pub blur: Option<BlurMode>,
 }
 
+impl StylePatch {
+    /// The patch with only the fields in `fields` kept.
+    #[must_use]
+    pub fn only(self, fields: StyleFields) -> Self {
+        Self {
+            color: self.color.filter(|_| fields.color),
+            stroke_width: self.stroke_width.filter(|_| fields.stroke_width),
+            font_size: self.font_size.filter(|_| fields.font_size),
+            blur: self.blur.filter(|_| fields.blur),
+        }
+    }
+}
+
+/// A set of [`Style`] fields: those a kind of annotation draws with
+/// ([`Shape::style_fields`](super::Shape::style_fields)), for example.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct StyleFields {
+    pub color: bool,
+    pub stroke_width: bool,
+    pub font_size: bool,
+    pub blur: bool,
+}
+
+impl StyleFields {
+    /// No fields.
+    pub const NONE: Self = Self {
+        color: false,
+        stroke_width: false,
+        font_size: false,
+        blur: false,
+    };
+
+    /// Every field.
+    pub const ALL: Self = Self {
+        color: true,
+        stroke_width: true,
+        font_size: true,
+        blur: true,
+    };
+
+    /// What strokes draw with: color and stroke width.
+    pub const STROKE: Self = Self {
+        color: true,
+        stroke_width: true,
+        ..Self::NONE
+    };
+
+    /// What text and step markers draw with: color and font size.
+    pub const TEXT: Self = Self {
+        color: true,
+        font_size: true,
+        ..Self::NONE
+    };
+
+    /// What blur regions draw with: the blur mode.
+    pub const BLUR: Self = Self {
+        blur: true,
+        ..Self::NONE
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +175,25 @@ mod tests {
         assert_eq!(patched.color, style.color);
         assert_eq!(patched.font_size, style.font_size);
         assert_eq!(style.patched(&StylePatch::default()), style);
+    }
+
+    #[test]
+    fn only_keeps_the_fields_asked_for() {
+        let patch = StylePatch {
+            color: Some(Rgba8::rgb(1, 2, 3)),
+            stroke_width: Some(9.0),
+            font_size: Some(30.0),
+            blur: Some(BlurMode::Gaussian),
+        };
+        assert_eq!(
+            patch.only(StyleFields::STROKE),
+            StylePatch {
+                color: patch.color,
+                stroke_width: patch.stroke_width,
+                ..StylePatch::default()
+            }
+        );
+        assert_eq!(patch.only(StyleFields::ALL), patch);
+        assert_eq!(patch.only(StyleFields::NONE), StylePatch::default());
     }
 }

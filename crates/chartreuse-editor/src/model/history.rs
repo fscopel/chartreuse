@@ -41,7 +41,10 @@ pub enum Command {
         ids: Vec<AnnotationId>,
         delta: Vector,
     },
-    /// Applies `patch` to each annotation's style.
+    /// Applies `patch` to each annotation's style, each field only to the
+    /// annotations whose kind draws with it
+    /// ([`Shape::style_fields`](super::Shape::style_fields)), so restyling a
+    /// mixed selection changes only what shows.
     Restyle {
         ids: Vec<AnnotationId>,
         patch: StylePatch,
@@ -150,7 +153,7 @@ impl Edit {
                 modify(annotations, &ids, |a| a.shape.translate(delta))
             }
             Command::Restyle { ids, patch } => modify(annotations, &ids, |a| {
-                let style = a.style.patched(&patch);
+                let style = a.style.patched(&patch.only(a.shape.style_fields()));
                 if style.font_size != a.style.font_size {
                     clear_measurement(&mut a.shape);
                 }

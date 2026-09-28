@@ -50,4 +50,4 @@ pub use geometry::{
     Rect, Size, Vector,
 };
 pub use history::{Command, Reorder};
-pub use style::{BlurMode, Style, StylePatch};
+pub use style::{BlurMode, Style, StyleFields, StylePatch};

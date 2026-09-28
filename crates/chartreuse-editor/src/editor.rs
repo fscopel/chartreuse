@@ -23,8 +23,9 @@ pub enum Message {
     Canvas(Input),
     /// Switches to a tool, first finishing whatever the current one was doing.
     Tool(ToolKind),
-    /// Sets the color for new annotations and restyles the selection (and
-    /// the text being edited).
+    /// Sets the color for new annotations and restyles the selected
+    /// annotations that have one (and the text being edited), as one undo
+    /// step.
     Color(Rgba8),
     /// Sets the stroke width, like [`Message::Color`].
     StrokeWidth(f32),

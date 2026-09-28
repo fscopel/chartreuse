@@ -24,7 +24,7 @@ use super::geometry::{
     distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_triangle, Point,
     Rect, Size, Vector,
 };
-use super::style::Style;
+use super::style::{Style, StyleFields};
 
 /// A document-unique, stable annotation identifier.
 ///
@@ -180,6 +180,25 @@ impl Shape {
             }
             Self::Blur(region) => region.rect,
             Self::Text(text) => text.bounds(style.font_size),
+        }
+    }
+
+    /// The style fields the shape draws with, the only ones restyling
+    /// changes ([`Command::Restyle`](super::Command::Restyle)): color and
+    /// stroke width for strokes (a line, arrow, rectangle, ellipse, pen, or
+    /// highlighter), color and font size for text and step markers, and only
+    /// the blur mode for a blur region.
+    #[must_use]
+    pub const fn style_fields(&self) -> StyleFields {
+        match self {
+            Self::Line(_)
+            | Self::Arrow(_)
+            | Self::Rectangle(_)
+            | Self::Ellipse(_)
+            | Self::Pen(_)
+            | Self::Highlighter(_) => StyleFields::STROKE,
+            Self::Step(_) | Self::Text(_) => StyleFields::TEXT,
+            Self::Blur(_) => StyleFields::BLUR,
         }
     }
 

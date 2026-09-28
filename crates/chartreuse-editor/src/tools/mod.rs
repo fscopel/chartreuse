@@ -49,7 +49,7 @@ use std::fmt;
 
 use iced::mouse::Interaction;
 
-use crate::model::{AnnotationId, Document, Point, Rect, Shape, Style, Vector};
+use crate::model::{AnnotationId, Document, Point, Rect, Shape, Style, StyleFields, Vector};
 
 pub use arrow::ArrowTool;
 pub use blur::BlurTool;
@@ -140,6 +140,26 @@ impl ToolKind {
             Self::Step => 'n',
             Self::Blur => 'b',
             Self::Crop => 'c',
+        }
+    }
+
+    /// The style fields of the annotations this tool makes (see
+    /// [`Shape::style_fields`]): none for the crop tool, and all for the
+    /// select tool, whose style controls set the style for new annotations
+    /// in general.
+    #[must_use]
+    pub const fn style_fields(self) -> StyleFields {
+        match self {
+            Self::Select => StyleFields::ALL,
+            Self::Crop => StyleFields::NONE,
+            Self::Line
+            | Self::Arrow
+            | Self::Rectangle
+            | Self::Ellipse
+            | Self::Pen
+            | Self::Highlighter => StyleFields::STROKE,
+            Self::Text | Self::Step => StyleFields::TEXT,
+            Self::Blur => StyleFields::BLUR,
         }
     }
 
