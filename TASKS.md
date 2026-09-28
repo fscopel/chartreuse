@@ -365,8 +365,8 @@ separate parallel agent.
 
 Depends on: the launch-at-login decision, 3A.
 
-- [ ] macOS `SMAppService` toggle in settings
-- [ ] Windows and Linux support added in 4A and 4B
+- [x] macOS `SMAppService` toggle in settings
+- [x] Windows and Linux support added in 4A and 4B
 
 ### 3D — Additional export targets
 

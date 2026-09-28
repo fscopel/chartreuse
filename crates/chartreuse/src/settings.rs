@@ -7,6 +7,9 @@
 //! brings it to the front if it is already open: there is at most one. Every
 //! change applies at once, to [`App::config`], and is saved.
 //!
+//! - **Open at login**: whether the OS starts the app when the user logs in
+//!   ([`Settings::launch_at_login`]). The OS's own setting wins over the
+//!   file's; see [`launch_at_login`].
 //! - **Hotkeys**: a recorder per capture mode. Clicking one records: the next
 //!   key combination with Ctrl, Alt or Super (Command on macOS) becomes the
 //!   mode's hotkey, keys being taken by their position on the keyboard.
@@ -35,16 +38,17 @@
 //! applies it and saves it. A change is a function of the settings, so that
 //! it can be made again on top of a file edited by hand (see
 //! [Saving](self#saving)). So a new setting takes a [`Message`] variant, an
-//! [`update`] arm, and a row. For example, a toggle in a new section:
+//! [`update`] arm, and a row. For example, a toggle for a (hypothetical)
+//! `notify` setting in a new section:
 //!
 //! ```ignore
 //! // In `update`:
-//! Message::LaunchAtLogin(on) => change(app, move |config| config.launch_at_login = on),
+//! Message::Notify(on) => change(app, move |config| config.notify = on),
 //! // In `view`:
-//! section("General", [setting(
-//!     "Launch at login",
-//!     toggler(app.config.launch_at_login)
-//!         .on_toggle(|on| AppMessage::Settings(Message::LaunchAtLogin(on))),
+//! section("Notifications", [setting(
+//!     "Notify after a capture",
+//!     toggler(app.config.notify)
+//!         .on_toggle(|on| AppMessage::Settings(Message::Notify(on))),
 //! )]),
 //! ```
 //!
@@ -106,7 +110,7 @@ use chrono::NaiveDateTime;
 use iced::futures::channel::mpsc;
 use iced::keyboard::{self, key::Physical};
 use iced::widget::{
-    button, column, container, pick_list, radio, row, scrollable, space, text, text_input,
+    button, column, container, pick_list, radio, row, scrollable, space, text, text_input, toggler,
 };
 use iced::{event, window, Element, Length, Size, Subscription, Task};
 use parking_lot::Mutex;
@@ -117,6 +121,7 @@ use crate::app::{App, Message as AppMessage};
 use crate::hotkeys;
 use crate::windows::WindowKind;
 
+mod launch_at_login;
 mod recorder;
 
 /// How often the settings file is checked for hand edits.
@@ -156,6 +161,9 @@ pub struct State {
     syncing: Option<Vec<Edit>>,
     /// The file changed during a sync: load it once the sync ends.
     reload: bool,
+    /// Why the OS did not take the last change to Open at login, shown under
+    /// its toggle.
+    login_item_problem: Option<String>,
 }
 
 /// This feature's messages ([`AppMessage::Settings`]).
@@ -183,6 +191,8 @@ pub enum Message {
     SaveFormat(SaveFormat),
     /// A post-capture behavior was chosen.
     AfterCapture(AfterCapture),
+    /// Open at login was switched on or off.
+    LaunchAtLogin(bool),
     /// The settings file changed on disk, other than by the app itself.
     FileChanged,
     /// A sync with the settings file ended: the settings it holds now, or why
@@ -425,7 +435,7 @@ pub fn boot(app: &mut App) -> Task<AppMessage> {
     app.settings.file = chartreuse_config::settings_path()
         .ok()
         .map(SettingsFile::new);
-    Task::none()
+    launch_at_login::follow_the_os(app)
 }
 
 pub fn update(app: &mut App, message: Message) -> Task<AppMessage> {
@@ -476,6 +486,7 @@ pub fn update(app: &mut App, message: Message) -> Task<AppMessage> {
         }
         Message::AfterCapture(after) => change(app, move |config| config.after_capture = after),
         Message::SaveFormat(format) => change(app, move |config| config.save_format = format),
+        Message::LaunchAtLogin(enabled) => launch_at_login::toggle(app, enabled),
         Message::FileChanged => {
             app.settings.reload = true;
             sync(app)
@@ -568,7 +579,19 @@ pub fn view(app: &App, window: window::Id) -> Element<'_, AppMessage> {
         AppMessage::Settings(Message::SaveFormat(format))
     });
 
+    // Padded down to sit level with its label.
+    let mut open_at_login = column![container(
+        toggler(config.launch_at_login)
+            .on_toggle(|enabled| AppMessage::Settings(Message::LaunchAtLogin(enabled)))
+    )
+    .padding(iced::padding::top(8))]
+    .spacing(4);
+    if let Some(line) = launch_at_login::note(app) {
+        open_at_login = open_at_login.push(note(line));
+    }
+
     let mut content = column![
+        section("General", [setting("Open at login", open_at_login)]),
         section("Hotkeys", hotkeys),
         section("Capturing", [setting("After a capture", after_capture)]),
         section(
@@ -605,6 +628,9 @@ fn open(app: &mut App) -> Task<AppMessage> {
     if let Some(shown) = &app.settings.window {
         return window::gain_focus(shown.id);
     }
+    // The user may have changed it in the OS since.
+    app.settings.login_item_problem = None;
+    let followed = launch_at_login::follow_the_os(app);
     let (id, open) = app.windows.open(
         WindowKind::Settings,
         window::Settings {
@@ -617,7 +643,7 @@ fn open(app: &mut App) -> Task<AppMessage> {
     );
     app.settings.window = Some(SettingsWindow::new(id, &app.config));
     // The app has no Dock icon, so bring the window forward explicitly.
-    open.discard().chain(window::gain_focus(id))
+    Task::batch([followed, open.discard().chain(window::gain_focus(id))])
 }
 
 /// Applies `edit` to the settings and saves it, if that changed anything.
@@ -691,6 +717,7 @@ fn adopt(app: &mut App, mut settings: Settings) -> Task<AppMessage> {
     }
     tracing::info!("applying the changed settings file");
     let hotkeys_changed = settings.hotkeys != app.config.hotkeys;
+    let login_changed = settings.launch_at_login != app.config.launch_at_login;
     app.config = settings;
     if let Some(shown) = &mut app.settings.window {
         shown.show(&app.config);
@@ -700,11 +727,19 @@ fn adopt(app: &mut App, mut settings: Settings) -> Task<AppMessage> {
         .window
         .as_ref()
         .is_some_and(|shown| shown.recording.is_some());
-    // While recording, the hotkeys are registered once it ends.
-    if hotkeys_changed && !recording {
-        hotkeys::reregister(app, hotkeys::bindings(&app.config.hotkeys))
+    let login = if login_changed {
+        launch_at_login::hand_edited(app)
     } else {
         Task::none()
+    };
+    // While recording, the hotkeys are registered once it ends.
+    if hotkeys_changed && !recording {
+        Task::batch([
+            login,
+            hotkeys::reregister(app, hotkeys::bindings(&app.config.hotkeys)),
+        ])
+    } else {
+        login
     }
 }
 
