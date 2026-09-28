@@ -8,9 +8,9 @@
 //!   ([`crate::linux_release`]): the optimized, release-flavor executable
 //!   with the license and the readme, in a `.zip` (Windows) or `.tar.gz`
 //!   (Linux) holding one top-level directory. The Windows executable carries
-//!   the app icon as a resource; the Linux archive adds an
-//!   `icons/hicolor/<size>x<size>/apps/<app ID>.png` tree. Tracks 5B and 5C
-//!   add an installer and packages, which install it.
+//!   the app icon as a resource; the Linux archive adds a `share/` tree with
+//!   the desktop entry, the AppStream metadata, and the app icon. Windows
+//!   also gets an installer.
 //!
 //! Archives are named `Chartreuse-<version>-<os>-<arch>` (the arch is
 //! `universal` on macOS), with `-unsigned` appended for an ad-hoc signed macOS

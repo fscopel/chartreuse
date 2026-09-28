@@ -52,9 +52,9 @@ Commands:
             $CHARTREUSE_WINDOWS_SIGN_PFX_PASSWORD; timestamped by
             $CHARTREUSE_WINDOWS_SIGN_TIMESTAMP_URL, default DigiCert's) and
             verified, and a per-user installer (-setup.exe, Inno Setup 6)
-            signed the same way; on Linux (.tar.gz) the executable with the
-            app icon (icons/hicolor/<size>x<size>/apps/*.png); both archives
-            with LICENSE and README.md
+            signed the same way; on Linux (.tar.gz) the executable with a
+            share/ tree (desktop entry, AppStream metadata, hicolor icons);
+            both archives with LICENSE and README.md
             --allow-ad-hoc  macOS: when the identity is unset, sign the app
                             ad-hoc, notarize nothing, and leave the disk image
                             unsigned; Windows: when no certificate is set,

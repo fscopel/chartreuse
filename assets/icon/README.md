@@ -27,8 +27,8 @@ Not checked in; rendered from `app-icon.svg` in the flavor's accent:
 - macOS: `Contents/Resources/AppIcon.icns`, from an `.iconset` of every size from 16 to
   1024 pixels (`cargo xtask bundle`, `cargo xtask release`).
 - Windows: nothing; the executable carries the checked-in app icon (below).
-- Linux: `icons/hicolor/<size>x<size>/apps/io.jennings.chartreuse.png` in the release
-  archive, from 16 to 512 pixels, ready to install under `/usr/share/icons/`.
+- Linux: `share/icons/hicolor/<size>x<size>/apps/io.jennings.chartreuse.png` in the
+  release archive, from 16 to 512 pixels.
 
 Up to 48 pixels, the Windows and Linux icons are the app icon's body cropped edge to edge,
 without the drop shadow, like the tray icons below: the Windows shell and Linux panels

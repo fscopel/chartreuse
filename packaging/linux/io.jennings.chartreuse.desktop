@@ -1,0 +1,24 @@
+[Desktop Entry]
+Type=Application
+Name=Chartreuse
+GenericName=Screenshot Tool
+Comment=Take screenshots and annotate them
+Exec=chartreuse
+Icon=io.jennings.chartreuse
+Terminal=false
+StartupNotify=false
+Categories=Graphics;Utility;
+Keywords=screenshot;capture;annotate;screen;
+Actions=capture-display;capture-window;capture-rectangle;
+
+[Desktop Action capture-display]
+Name=Capture display
+Exec=chartreuse capture display
+
+[Desktop Action capture-window]
+Name=Capture window
+Exec=chartreuse capture window
+
+[Desktop Action capture-rectangle]
+Name=Capture rectangle
+Exec=chartreuse capture rectangle

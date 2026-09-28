@@ -285,7 +285,7 @@ Everything beyond `cargo build` is a `cargo xtask` command, and CI runs nothing 
 | `cargo xtask bundle` | Signed `target/debug/Chartreuse Dev.app` (macOS) |
 | `cargo xtask run` | `bundle`, then launch it through LaunchServices. `--fake` uses the synthetic platform backend |
 | `cargo xtask dev-cert` | Once per machine (macOS): create the self-signed development signing identity that `bundle` uses when `CHARTREUSE_SIGN_IDENTITY` is unset |
-| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). Windows: the executable, with the app icon embedded, signed with `signtool` and verified, in a `.zip`, and a per-user installer (`-setup.exe`, built with [Inno Setup 6](https://jrsoftware.org/isinfo.php)) signed the same way; see [Windows](#from-a-developer-machine-windows). Linux (`.tar.gz`): the executable with the app icon. Both archives hold `LICENSE` and `README.md`. `--allow-ad-hoc`: when no signing identity (macOS) or certificate (Windows) is set, sign the app ad-hoc (macOS) and skip signing the disk image and notarization, or sign nothing (Windows); the names end in `-unsigned`. |
+| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). Windows: the executable, with the app icon embedded, signed with `signtool` and verified, in a `.zip`, and a per-user installer (`-setup.exe`, built with [Inno Setup 6](https://jrsoftware.org/isinfo.php)) signed the same way; see [Windows](#from-a-developer-machine-windows). Linux (`.tar.gz`): the executable with a `share/` tree: the desktop entry, the AppStream metadata, and the app icon. Both archives hold `LICENSE` and `README.md`. `--allow-ad-hoc`: when no signing identity (macOS) or certificate (Windows) is set, sign the app ad-hoc (macOS) and skip signing the disk image and notarization, or sign nothing (Windows); the names end in `-unsigned`. |
 | `cargo xtask ci-keychain` | CI (macOS): import the Developer ID identity from `CHARTREUSE_SIGN_P12_BASE64` (a base64-encoded `.p12`) and `CHARTREUSE_SIGN_P12_PASSWORD` into a temporary keychain that `codesign` uses without prompting, and print it. `--skip-if-unset` succeeds without doing anything when `CHARTREUSE_SIGN_P12_BASE64` is unset. Remove the keychain afterwards with the `security delete-keychain` command it prints (GitHub-hosted runners are discarded anyway). |
 | `cargo xtask ci-install-tools` | CI: install the packaging tools `release` needs that the runner lacks: on Windows, Inno Setup 6 with Chocolatey (GitHub's Windows Server 2025 image no longer has it). Does nothing on macOS, or when the tools are installed. |
 | `cargo xtask upload-release <tag>` | Attach every file in `target/dist/` to the GitHub release `<tag>` with the [GitHub CLI](https://cli.github.com) (`gh`), replacing assets of the same name. The tag must be `v<version>` for the `Cargo.toml` version, and every file must be named for that version. Needs `GH_TOKEN` (or `gh auth login`), and `GH_REPO=owner/repo` outside a git checkout. |
@@ -299,8 +299,11 @@ enables; it is independent of the optimization profile.
 GitHub Actions builds every platform and attaches the archives to the release
 ([`.github/workflows/release.yml`](.github/workflows/release.yml)):
 
-1. Set `version` under `[workspace.package]` in `Cargo.toml` to the new version,
-   and push that commit.
+1. Set `version` under `[workspace.package]` in `Cargo.toml` to the new version, add
+   a `<release version="<version>" date="YYYY-MM-DD"/>` for it at the top of
+   `<releases>` in
+   [`packaging/linux/io.jennings.chartreuse.metainfo.xml`](packaging/linux/io.jennings.chartreuse.metainfo.xml)
+   (software centers show it; a test fails until it is there), and push that commit.
 2. Create the release with a tag named `v<version>` (e.g. `v0.2.0`) on that commit,
    and publish it straight away: on GitHub, *Releases → Draft a new release*, then
    *Publish release* (tick *Set as a pre-release* for a trial run), or
@@ -318,7 +321,10 @@ GitHub Actions builds every platform and attaches the archives to the release
      [signing secrets](#release-signing-secrets) exist they are
      `…-windows-x86_64-unsigned-setup.exe` and `…-windows-x86_64-unsigned.zip`,
      which SmartScreen warns about on first run (*More info → Run anyway*)
-   - `Chartreuse-<version>-linux-x86_64.tar.gz`
+   - `Chartreuse-<version>-linux-x86_64.tar.gz`: the executable and a `share/` tree
+     (desktop entry, AppStream metadata, icons). To install it for yourself:
+     `install -Dm755 chartreuse ~/.local/bin/chartreuse && cp -r share/. ~/.local/share/`
+     (with `~/.local/bin` on `PATH`, since the desktop entry runs `chartreuse`)
 
 A tag that does not match the `Cargo.toml` version fails the upload, naming both.
 Re-running a failed job replaces that platform's assets. Running the workflow by hand
@@ -437,5 +443,5 @@ fails, naming the variables.
 | `crates/chartreuse-overlay` | Selection overlay canvas programs |
 | `crates/chartreuse-editor` | Editor document model, tools, and canvas |
 | `assets` | Icon sources and generated icons; `assets/macos/Chartreuse.entitlements`, the entitlements every macOS build is signed with (none, deliberately) |
-| `packaging` | What `cargo xtask release` packages with: `windows/chartreuse.iss`, the Inno Setup installer script |
+| `packaging` | What `cargo xtask release` packages with: `windows/chartreuse.iss`, the Inno Setup installer script; `linux/`, the desktop entry and AppStream metadata |
 | `xtask` | Build automation (`cargo xtask`) |

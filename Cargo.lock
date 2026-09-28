@@ -5478,6 +5478,7 @@ dependencies = [
  "chartreuse-core",
  "plist",
  "png",
+ "quick-xml 0.42.0",
  "resvg",
 ]
 

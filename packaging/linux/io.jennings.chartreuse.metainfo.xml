@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata: what software centers show for Chartreuse. Installed as
+     share/metainfo/io.jennings.chartreuse.metainfo.xml. The newest <release>
+     must be the Cargo.toml version (a test checks): add one, newest first, for
+     every release. -->
+<component type="desktop-application">
+  <id>io.jennings.chartreuse</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Chartreuse</name>
+  <summary>Take screenshots and annotate them</summary>
+  <developer id="io.jennings">
+    <name>Stephen Jennings</name>
+  </developer>
+  <description>
+    <p>
+      Chartreuse waits in the system tray until a global shortcut or its tray
+      menu starts a capture: the whole desktop, the window you click, or the
+      rectangle you drag. The capture opens in a small editor for annotation,
+      or goes straight to the clipboard, as you prefer.
+    </p>
+    <ul>
+      <li>Captures at each display's full resolution, across displays with
+        different scale factors</li>
+      <li>Arrows, lines, rectangles, ellipses, freehand strokes, highlights,
+        numbered steps, and text, all editable until you export</li>
+      <li>Copy to the clipboard, or save as PNG, JPEG, or WebP</li>
+      <li>Works on Wayland through the desktop portals, and on X11</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.jennings.chartreuse.desktop</launchable>
+  <provides>
+    <binary>chartreuse</binary>
+  </provides>
+  <url type="homepage">https://github.com/jennings/chartreuse</url>
+  <url type="bugtracker">https://github.com/jennings/chartreuse/issues</url>
+  <url type="vcs-browser">https://github.com/jennings/chartreuse</url>
+  <requires>
+    <control>pointing</control>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+  </supports>
+  <branding>
+    <color type="primary" scheme_preference="light">#80ff00</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-09-27"/>
+  </releases>
+</component>
