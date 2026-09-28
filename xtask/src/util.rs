@@ -1,6 +1,6 @@
 //! Shared helpers: errors, workspace paths, and running commands.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -126,4 +126,61 @@ pub fn loud_warning(lines: &[&str]) {
         eprintln!("warning: {line}");
     }
     eprintln!("warning: {rule}");
+}
+
+/// One command in a fixed sequence (such as `dev-cert`'s), built as data so
+/// tests can check its arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    /// What the command does, for progress output.
+    pub what: &'static str,
+    pub program: &'static str,
+    pub args: Vec<OsString>,
+}
+
+impl Step {
+    pub fn new(what: &'static str, program: &'static str, args: &[&dyn AsRef<OsStr>]) -> Self {
+        Self {
+            what,
+            program,
+            args: args.iter().map(|arg| arg.as_ref().to_owned()).collect(),
+        }
+    }
+
+    pub fn command(&self) -> Command {
+        let mut command = tool(self.program);
+        command.args(&self.args);
+        command
+    }
+}
+
+/// A temporary directory only its owner can read, for key material, removed
+/// with everything in it when dropped, however the command exits.
+#[derive(Debug)]
+pub struct PrivateDir(PathBuf);
+
+impl PrivateDir {
+    /// Creates `<temp dir>/<name>-<pid>`.
+    pub fn create(name: &str) -> Result<Self> {
+        let path = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder
+            .create(&path)
+            .context(|| format!("creating {}", path.display()))?;
+        Ok(Self(path))
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for PrivateDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }

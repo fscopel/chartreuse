@@ -127,7 +127,10 @@ fn zip_app(app: &Path, archive: &Path) -> Result {
 
 /// Windows and Linux: the executable, [`DOCUMENTS`], and the app icon, archived.
 fn release_executable(os: &str, dist: &Path, extension: &str) -> Result<PathBuf> {
-    bundle::build_chartreuse(Profile::Release, Flavor::Release)?;
+    run(&mut bundle::build_command(
+        Profile::Release,
+        Flavor::Release,
+    ))?;
     let profile_dir = target_dir().join(Profile::Release.dir_name());
     let stem = archive_stem(VERSION, os, std::env::consts::ARCH, false);
 

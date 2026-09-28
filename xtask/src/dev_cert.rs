@@ -27,14 +27,12 @@
 //! `/usr/bin/openssl` (LibreSSL) writes PKCS #12 files that `security import`
 //! reads. OpenSSL 3, as installed by Homebrew, uses defaults that it cannot read.
 
-use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use chartreuse_core::flavor::Flavor;
 
 use crate::sign::Identity;
-use crate::util::{capture, tool, Context, Error, Result};
+use crate::util::{capture, tool, Context, Error, PrivateDir, Result, Step};
 
 /// The keychain's file name in `~/Library/Keychains`.
 const KEYCHAIN_FILE: &str = "chartreuse-dev-signing.keychain-db";
@@ -55,31 +53,6 @@ const SECURITY: &str = "/usr/bin/security";
 #[must_use]
 pub fn keychain_path(home: &Path) -> PathBuf {
     home.join("Library").join("Keychains").join(KEYCHAIN_FILE)
-}
-
-/// One command that `dev-cert` runs.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Step {
-    /// What the command does, for progress output.
-    pub what: &'static str,
-    pub program: &'static str,
-    pub args: Vec<OsString>,
-}
-
-impl Step {
-    fn new(what: &'static str, program: &'static str, args: &[&dyn AsRef<OsStr>]) -> Self {
-        Self {
-            what,
-            program,
-            args: args.iter().map(|arg| arg.as_ref().to_owned()).collect(),
-        }
-    }
-
-    fn command(&self) -> Command {
-        let mut command = tool(self.program);
-        command.args(&self.args);
-        command
-    }
 }
 
 /// Unlocks `keychain`. A keychain starts out locked after a restart.
@@ -234,17 +207,6 @@ pub fn installed() -> Result<Option<Identity>> {
     Ok(Some(Identity::DevCert { keychain, hash }))
 }
 
-/// Removes the temporary directory, key material included, however `dev-cert`
-/// exits.
-#[derive(Debug)]
-struct WorkDir(PathBuf);
-
-impl Drop for WorkDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 pub fn dev_cert() -> Result {
     if !cfg!(target_os = "macos") {
         return Err(Error("dev-cert is only needed on macOS".into()));
@@ -270,17 +232,9 @@ pub fn dev_cert() -> Result {
     let folder = keychain.parent().expect("the keychain path has a folder");
     std::fs::create_dir_all(folder).context(|| format!("creating {}", folder.display()))?;
 
-    let work =
-        WorkDir(std::env::temp_dir().join(format!("chartreuse-dev-cert-{}", std::process::id())));
-    #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut builder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder
-        .create(&work.0)
-        .context(|| format!("creating {}", work.0.display()))?;
+    let work = PrivateDir::create("chartreuse-dev-cert")?;
 
-    for step in create_steps(&keychain, &work.0) {
+    for step in create_steps(&keychain, work.path()) {
         eprintln!("dev-cert: {}", step.what);
         if let Err(error) = capture(&mut step.command()) {
             if keychain.exists() {

@@ -1,6 +1,7 @@
 //! `cargo xtask bundle`: assemble and sign the macOS `.app`.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use chartreuse_core::flavor::Flavor;
 
@@ -86,16 +87,19 @@ impl Bundle {
         })
     }
 
-    /// Builds the executable, assembles the bundle, and signs it.
+    /// Builds the executable for the host, assembles the bundle, and signs it.
     pub fn build(&self) -> Result<Layout> {
-        if !cfg!(target_os = "macos") {
-            return Err(Error("app bundles can only be built on macOS".into()));
-        }
-        build_chartreuse(self.profile, self.flavor)?;
+        require_macos()?;
+        run(&mut build_command(self.profile, self.flavor))?;
+        self.package(&target_dir().join(self.profile.dir_name()))
+    }
 
-        let profile_dir = target_dir().join(self.profile.dir_name());
-        let layout = Layout::new(&profile_dir, self.flavor);
-        self.assemble(&profile_dir, &layout)?;
+    /// Assembles the bundle in `dir` around the executable already built there
+    /// (`dir/chartreuse`), and signs it.
+    pub fn package(&self, dir: &Path) -> Result<Layout> {
+        require_macos()?;
+        let layout = Layout::new(dir, self.flavor);
+        self.assemble(dir, &layout)?;
         sign::sign(
             &layout.app,
             &self.identity,
@@ -132,8 +136,17 @@ impl Bundle {
     }
 }
 
-/// Builds the `chartreuse` executable into `target/<profile>/`.
-pub fn build_chartreuse(profile: Profile, flavor: Flavor) -> Result {
+fn require_macos() -> Result {
+    if cfg!(target_os = "macos") {
+        Ok(())
+    } else {
+        Err(Error("app bundles can only be built on macOS".into()))
+    }
+}
+
+/// The `cargo build` command for the `chartreuse` executable, which lands in
+/// `target/<profile>/` (`target/<triple>/<profile>/` with `--target`).
+pub fn build_command(profile: Profile, flavor: Flavor) -> Command {
     let mut build = cargo();
     build.args(["build", "--package", "chartreuse"]);
     if profile == Profile::Release {
@@ -142,7 +155,7 @@ pub fn build_chartreuse(profile: Profile, flavor: Flavor) -> Result {
     if flavor == Flavor::Release {
         build.args(["--features", "release-flavor"]);
     }
-    run(&mut build)
+    build
 }
 
 #[cfg(test)]
