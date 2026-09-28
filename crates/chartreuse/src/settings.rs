@@ -30,6 +30,8 @@
 //!   now would get. Text that is not valid says why under its field and
 //!   changes nothing until it is. Then the default format ([`SaveFormat`]):
 //!   that of saves without asking, and the one the save dialog suggests.
+//! - **Editor**: whether closing an editor window whose image has not been
+//!   saved or copied asks first ([`Settings::confirm_close_unsaved`]).
 //!
 //! ## Adding a setting
 //!
@@ -110,7 +112,8 @@ use chrono::NaiveDateTime;
 use iced::futures::channel::mpsc;
 use iced::keyboard::{self, key::Physical};
 use iced::widget::{
-    button, column, container, pick_list, radio, row, scrollable, space, text, text_input, toggler,
+    button, checkbox, column, container, pick_list, radio, row, scrollable, space, text,
+    text_input, toggler,
 };
 use iced::{event, window, Element, Length, Size, Subscription, Task};
 use parking_lot::Mutex;
@@ -193,6 +196,8 @@ pub enum Message {
     AfterCapture(AfterCapture),
     /// Open at login was switched on or off.
     LaunchAtLogin(bool),
+    /// Ask for confirmation when closing unsaved image was switched on or off.
+    ConfirmCloseUnsaved(bool),
     /// The settings file changed on disk, other than by the app itself.
     FileChanged,
     /// A sync with the settings file ended: the settings it holds now, or why
@@ -487,6 +492,9 @@ pub fn update(app: &mut App, message: Message) -> Task<AppMessage> {
         Message::AfterCapture(after) => change(app, move |config| config.after_capture = after),
         Message::SaveFormat(format) => change(app, move |config| config.save_format = format),
         Message::LaunchAtLogin(enabled) => launch_at_login::toggle(app, enabled),
+        Message::ConfirmCloseUnsaved(on) => {
+            change(app, move |config| config.confirm_close_unsaved = on)
+        }
         Message::FileChanged => {
             app.settings.reload = true;
             sync(app)
@@ -589,6 +597,9 @@ pub fn view(app: &App, window: window::Id) -> Element<'_, AppMessage> {
     if let Some(line) = launch_at_login::note(app) {
         open_at_login = open_at_login.push(note(line));
     }
+    let confirm_close = checkbox(config.confirm_close_unsaved)
+        .label("Ask for confirmation when closing unsaved image")
+        .on_toggle(|on| AppMessage::Settings(Message::ConfirmCloseUnsaved(on)));
 
     let mut content = column![
         section("General", [setting("Open at login", open_at_login)]),
@@ -602,6 +613,7 @@ pub fn view(app: &App, window: window::Id) -> Element<'_, AppMessage> {
                 setting("Default format", format),
             ]
         ),
+        section("Editor", [setting("Closing", confirm_close)]),
     ]
     .spacing(24);
     if let Some(problem) = &app.settings.problem {

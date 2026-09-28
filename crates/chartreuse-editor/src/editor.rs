@@ -74,6 +74,8 @@ pub enum Event {
     Save,
     /// Copy the image to the clipboard (Cmd+C).
     Copy,
+    /// Close the window (Cmd+W).
+    Close,
 }
 
 /// The state of one editor: the [`Document`], the active tool, the style for
@@ -376,9 +378,10 @@ impl Editor {
 
     /// Handles a key press:
     ///
-    /// - Cmd+Z undoes and Cmd+Shift+Z redoes; Cmd+S and Cmd+C ask the owner
-    ///   to save or copy; Cmd+0 fits the image, Cmd+1 shows it at actual
-    ///   size, and Cmd+= and Cmd+- zoom in and out. These work while typing.
+    /// - Cmd+Z undoes and Cmd+Shift+Z redoes; Cmd+S, Cmd+C, and Cmd+W ask the
+    ///   owner to save, copy, or close; Cmd+0 fits the image, Cmd+1 shows it
+    ///   at actual size, and Cmd+= and Cmd+- zoom in and out. These work
+    ///   while typing. (Cmd is Ctrl on Windows and Linux.)
     /// - While a text edit is open, other keys type (see [`Self::type_key`]).
     /// - Otherwise Delete or Backspace deletes the selection, Escape abandons
     ///   the gesture in progress or, if there is none, clears the selection,
@@ -403,9 +406,13 @@ impl Editor {
             match c {
                 "z" if modifiers.shift() => self.redo(),
                 "z" => self.undo(),
-                "s" | "c" => {
+                "s" | "c" | "w" => {
                     self.finish();
-                    return Some(if c == "s" { Event::Save } else { Event::Copy });
+                    return Some(match c {
+                        "s" => Event::Save,
+                        "c" => Event::Copy,
+                        _ => Event::Close,
+                    });
                 }
                 "0" => self.zoom_by(ZoomChange::Fit),
                 "1" => self.zoom_by(ZoomChange::ActualSize),

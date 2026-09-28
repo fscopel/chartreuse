@@ -52,6 +52,8 @@ const HEADER: &str = "\
 #   the capture's date and time
 # save_format: \"png\", \"jpeg\" or \"webp\"
 # after_capture: \"open_editor\", \"copy\" or \"save_and_copy\"
+# confirm_close_unsaved: ask before closing an editor whose image has not
+#   been saved or copied
 # hotkeys: modifiers Ctrl, Alt, Shift, Super (Cmd on macOS) plus a key
 
 ";
@@ -416,6 +418,7 @@ mod tests {
             save_format: SaveFormat::Jpeg,
             after_capture: AfterCapture::Copy,
             launch_at_login: true,
+            confirm_close_unsaved: false,
             hotkeys: Hotkeys::new(hotkey("Super+F1"), hotkey("Super+F2"), hotkey("Super+F3"))
                 .unwrap(),
         }

@@ -33,10 +33,21 @@
 //! only once the export succeeds: a cancelled save dialog or a failure (reported
 //! to the user) leaves it open.
 //!
-//! Closing an editor window discards it, annotations included, without asking:
-//! v1 has no unsaved-changes confirmation.
+//! # Closing
+//!
+//! Cmd+W (Ctrl+W on Windows and Linux), the window's close button, and the
+//! desktop's own close-window shortcut (such as Alt+F4) all ask to close an
+//! editor window ([`Message::CloseRequested`]). It closes at once if its image
+//! has been saved or copied since it last changed (an export of the
+//! document's current [`Document::revision`] succeeded), or if
+//! [`Settings::confirm_close_unsaved`] is off. Otherwise a dialog over the
+//! window asks first: Close discards the image, annotations included, and
+//! Cancel (or Escape) goes back to editing. A close-after button never asks:
+//! it closes the window only once its export succeeded.
 //!
 //! [`Document::export_size`]: chartreuse_editor::model::Document::export_size
+//! [`Document::revision`]: chartreuse_editor::model::Document::revision
+//! [`Settings::confirm_close_unsaved`]: chartreuse_config::Settings::confirm_close_unsaved
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -44,12 +55,13 @@ use std::sync::Arc;
 use chartreuse_core::flavor;
 use chartreuse_core::geometry::{LogicalSize, PhysicalSize};
 use chartreuse_core::image::Image;
-use chartreuse_editor::canvas::MARGIN;
+use chartreuse_editor::canvas::{Input, InputKind, MARGIN};
 use chartreuse_editor::flatten::flatten;
 use chartreuse_editor::{Editor, Event};
 use chrono::NaiveDateTime;
-use iced::widget::{button, column, container, row, space, text, tooltip};
-use iced::{window, Alignment, Element, Length, Size, Subscription, Task};
+use iced::keyboard::{key::Named, Key};
+use iced::widget::{button, center, column, container, opaque, row, space, stack, text, tooltip};
+use iced::{window, Alignment, Color, Element, Length, Size, Subscription, Task};
 
 use crate::alert::{self, Notice};
 use crate::app::{App, Message as AppMessage};
@@ -93,6 +105,25 @@ struct Session {
     /// saved file's name.
     opened: NaiveDateTime,
     title: String,
+    /// The document revision last exported, if any.
+    exported: Option<u64>,
+    /// Whether the dialog asking to close without saving is showing.
+    confirming: bool,
+}
+
+impl Session {
+    /// Whether the image as it is now has been saved or copied.
+    fn is_saved(&self) -> bool {
+        self.exported == Some(self.editor.document().revision())
+    }
+}
+
+/// The editor window an exported image came from, and the revision of its
+/// document the image shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Source {
+    pub window: window::Id,
+    pub revision: u64,
 }
 
 /// An export button or shortcut.
@@ -114,6 +145,15 @@ pub enum Message {
     Export(window::Id, Action),
     /// An image was flattened for export to the target, or failed to be.
     Flattened(Target, Result<Request, chartreuse_core::Error>),
+    /// An image from an editor window was saved or copied.
+    Exported(Source),
+    /// The user asked to close an editor window (Cmd+W, the close button, or
+    /// the desktop's shortcut); see [Closing](self#closing).
+    CloseRequested(window::Id),
+    /// The dialog's Close button: close the window without saving.
+    ConfirmClose(window::Id),
+    /// The dialog's Cancel button: keep the window open.
+    CancelClose(window::Id),
 }
 
 /// The size of a new editor window for an image of `image` pixels on a
@@ -150,9 +190,14 @@ pub fn update(app: &mut App, message: Message) -> Task<AppMessage> {
             let Some(session) = app.editor.windows.get_mut(&window) else {
                 return Task::none();
             };
+            if session.confirming {
+                while_confirming(session, message);
+                return Task::none();
+            }
             let target = match session.editor.update(message) {
                 Some(Event::Save) => Target::Save,
                 Some(Event::Copy) => Target::Copy,
+                Some(Event::Close) => return request_close(app, window),
                 None => return Task::none(),
             };
             export(
@@ -171,11 +216,70 @@ pub fn update(app: &mut App, message: Message) -> Task<AppMessage> {
         Message::Flattened(target, Err(error)) => {
             alert::report_error(app, Notice::from_error(target.failure(), &error))
         }
+        Message::Exported(source) => {
+            if let Some(session) = app.editor.windows.get_mut(&source.window) {
+                session.exported = session.exported.max(Some(source.revision));
+            }
+            Task::none()
+        }
+        Message::CloseRequested(window) => request_close(app, window),
+        Message::ConfirmClose(window) => window::close(window),
+        Message::CancelClose(window) => {
+            if let Some(session) = app.editor.windows.get_mut(&window) {
+                session.confirming = false;
+            }
+            Task::none()
+        }
     }
 }
 
+/// Handles `message` from the editor widget in a window showing the close
+/// dialog, which covers the editor: Escape cancels the close, and the
+/// editor still hears of its canvas's size and the scale factor.
+fn while_confirming(session: &mut Session, message: chartreuse_editor::Message) {
+    match message {
+        chartreuse_editor::Message::Canvas(Input {
+            kind:
+                InputKind::Key {
+                    key: Key::Named(Named::Escape),
+                    ..
+                },
+            ..
+        }) => session.confirming = false,
+        chartreuse_editor::Message::Canvas(Input {
+            kind: InputKind::Resized,
+            ..
+        })
+        | chartreuse_editor::Message::ScaleFactor(_) => {
+            session.editor.update(message);
+        }
+        _ => {}
+    }
+}
+
+/// Closes editor window `window`, or, if its image has changed since it was
+/// last saved or copied and the settings say to ask, shows the dialog that
+/// asks first (see [Closing](self#closing)). Finishes the editing in
+/// progress first, so the image is as the user sees it.
+fn request_close(app: &mut App, window: window::Id) -> Task<AppMessage> {
+    let ask = app.config.confirm_close_unsaved;
+    let Some(session) = app.editor.windows.get_mut(&window) else {
+        return Task::none();
+    };
+    session.editor.finish();
+    if ask && !session.is_saved() {
+        session.confirming = true;
+        Task::none()
+    } else {
+        window::close(window)
+    }
+}
+
+/// Asks to close editor windows as the user does ([`Message::CloseRequested`]).
+/// Editor windows are opened without closing on a close request, so only
+/// they hear of one.
 pub fn subscription(_app: &App) -> Subscription<AppMessage> {
-    Subscription::none()
+    window::close_requests().map(|window| AppMessage::Editor(Message::CloseRequested(window)))
 }
 
 /// The title of editor window `window`: the app's name and when it opened.
@@ -186,21 +290,59 @@ pub fn title(app: &App, window: window::Id) -> String {
     )
 }
 
-/// The editor window's contents: its [`Editor`] widget above the status bar.
+/// The editor window's contents: its [`Editor`] widget above the status bar,
+/// under the close dialog while it shows.
 pub fn view(app: &App, window: window::Id) -> Element<'_, AppMessage> {
-    match app.editor.get(window) {
-        Some(editor) => column![
-            container(
-                editor
-                    .view()
-                    .map(move |message| AppMessage::Editor(Message::Widget(window, message)))
-            )
-            .height(Length::Fill),
-            status_bar(editor, window),
-        ]
-        .into(),
-        None => space().into(),
+    let Some(session) = app.editor.windows.get(&window) else {
+        return space().into();
+    };
+    let editor = &session.editor;
+    let content = column![
+        container(
+            editor
+                .view()
+                .map(move |message| AppMessage::Editor(Message::Widget(window, message)))
+        )
+        .height(Length::Fill),
+        status_bar(editor, window),
+    ];
+    if session.confirming {
+        stack![content, close_dialog(window)].into()
+    } else {
+        content.into()
     }
+}
+
+/// The dialog asking whether to close editor window `window` without saving,
+/// over a backdrop that dims and blocks the editor.
+fn close_dialog<'a>(window: window::Id) -> Element<'a, AppMessage> {
+    let dialog = container(
+        column![
+            text("Close without saving?").size(18),
+            text(
+                "This image has not been saved or copied to the clipboard since it \
+                 last changed. Closing the window discards it."
+            ),
+            row![
+                space().width(Length::Fill),
+                button(text("Cancel"))
+                    .style(button::secondary)
+                    .on_press(AppMessage::Editor(Message::CancelClose(window))),
+                button(text("Close"))
+                    .style(button::danger)
+                    .on_press(AppMessage::Editor(Message::ConfirmClose(window))),
+            ]
+            .spacing(8),
+        ]
+        .spacing(12),
+    )
+    .padding(20)
+    .max_width(420)
+    .style(container::bordered_box);
+    opaque(center(dialog).style(|_theme| container::Style {
+        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.5).into()),
+        ..container::Style::default()
+    }))
 }
 
 pub fn window_closed(app: &mut App, window: window::Id) -> Task<AppMessage> {
@@ -219,6 +361,8 @@ fn open(app: &mut App, image: Image) -> Task<AppMessage> {
             size,
             min_size: Some(MIN_SIZE),
             position: window::Position::Centered,
+            // Closing asks first, if the image is unsaved.
+            exit_on_close_request: false,
             ..window::Settings::default()
         },
     );
@@ -239,6 +383,8 @@ fn open(app: &mut App, image: Image) -> Task<AppMessage> {
             editor: Editor::new(image),
             opened,
             title,
+            exported: None,
+            confirming: false,
         },
     );
     // Not every platform reports a new window's scale factor (the editor
@@ -279,12 +425,17 @@ fn export(app: &mut App, window: window::Id, action: Action) -> Task<AppMessage>
     let document = session.editor.document().clone();
     let taken = session.opened;
     let then_close = action.close.then_some(window);
+    let source = Some(Source {
+        window,
+        revision: document.revision(),
+    });
     Task::perform(
         async move {
             flatten(&document).map(|image| Request {
                 image: Arc::new(image),
                 taken,
                 then_close,
+                source,
             })
         },
         move |request| AppMessage::Editor(Message::Flattened(action.target, request)),
@@ -446,7 +597,7 @@ mod tests {
             app,
             window,
             InputKind::Key {
-                key: keyboard::Key::Character(key.into()),
+                key: Key::Character(key.into()),
                 modifiers: keyboard::Modifiers::COMMAND,
                 text: None,
             },
@@ -587,7 +738,7 @@ mod tests {
             &mut app,
             window,
             InputKind::Key {
-                key: keyboard::Key::Character("W".into()),
+                key: Key::Character("W".into()),
                 modifiers: keyboard::Modifiers::default(),
                 text: Some("W".into()),
             },
@@ -674,6 +825,87 @@ mod tests {
         let window = open_editor(&mut app, white());
         let _ = app.settle(AppMessage::WindowClosed(window));
         assert!(app.editor.get(window).is_none());
+        assert!(editors(&app).is_empty());
+    }
+
+    fn request_close(app: &mut App, window: window::Id) {
+        let _ = app.settle(AppMessage::Editor(Message::CloseRequested(window)));
+    }
+
+    fn confirming(app: &App, window: window::Id) -> bool {
+        app.editor.windows[&window].confirming
+    }
+
+    #[test]
+    fn closing_an_unsaved_image_asks_first() {
+        let (mut app, _fake, _saves, window) = app_with_editor();
+        draw_rectangle(&mut app, window);
+
+        request_close(&mut app, window);
+        assert_eq!(editors(&app), [window], "not closed yet");
+        assert!(confirming(&app, window));
+        widget(&mut app, window, chartreuse_editor::Message::Undo);
+        assert_eq!(
+            app.editor
+                .get(window)
+                .unwrap()
+                .document()
+                .annotations()
+                .len(),
+            1,
+            "the dialog blocks the editor"
+        );
+        let _ = app.settle(AppMessage::Editor(Message::CancelClose(window)));
+        assert!(!confirming(&app, window));
+
+        // Cmd+W asks too; Escape cancels.
+        command(&mut app, window, "w");
+        assert!(confirming(&app, window));
+        canvas(
+            &mut app,
+            window,
+            InputKind::Key {
+                key: Key::Named(Named::Escape),
+                modifiers: keyboard::Modifiers::default(),
+                text: None,
+            },
+        );
+        assert!(!confirming(&app, window));
+
+        command(&mut app, window, "w");
+        let _ = app.settle(AppMessage::Editor(Message::ConfirmClose(window)));
+        assert!(editors(&app).is_empty());
+    }
+
+    #[test]
+    fn a_saved_or_copied_image_closes_without_asking_until_it_changes() {
+        let (mut app, fake, saves, window) = app_with_editor();
+        export(&mut app, window, Target::Copy, false);
+        request_close(&mut app, window);
+        assert!(editors(&app).is_empty(), "copied: closed at once");
+
+        let window = open_editor(&mut app, white());
+        fake.set_save_answer(Some(saves.path().join("saved.png")));
+        command(&mut app, window, "s");
+        assert!(app.editor.windows[&window].is_saved());
+        draw_rectangle(&mut app, window);
+        request_close(&mut app, window);
+        assert!(confirming(&app, window), "changed since it was saved");
+        let _ = app.settle(AppMessage::Editor(Message::CancelClose(window)));
+
+        // A cancelled save leaves it unsaved.
+        fake.set_save_answer(None);
+        export(&mut app, window, Target::Save, false);
+        request_close(&mut app, window);
+        assert!(confirming(&app, window), "the save was cancelled");
+    }
+
+    #[test]
+    fn the_setting_closes_unsaved_images_without_asking() {
+        let (mut app, _fake, _saves, window) = app_with_editor();
+        app.config.confirm_close_unsaved = false;
+        draw_rectangle(&mut app, window);
+        request_close(&mut app, window);
         assert!(editors(&app).is_empty());
     }
 }

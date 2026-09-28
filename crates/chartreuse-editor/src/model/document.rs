@@ -43,6 +43,8 @@ pub struct Document {
     selection: BTreeSet<AnnotationId>,
     next_id: u64,
     history: History,
+    /// Counts edits, undos, and redos.
+    revision: u64,
 }
 
 impl Document {
@@ -60,6 +62,7 @@ impl Document {
             selection: BTreeSet::new(),
             next_id: 0,
             history: History::default(),
+            revision: 0,
         }
     }
 
@@ -78,6 +81,15 @@ impl Document {
     #[must_use]
     pub fn shared_base(&self) -> &Arc<Image> {
         &self.state.base
+    }
+
+    /// A number that grows with every [edit](Self::apply), undo, and redo
+    /// (and never otherwise), so a copy of the document with the same
+    /// revision holds the same edits: an owner can tell whether the image
+    /// changed since it last exported it.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// The base image's extent in document coordinates: `(0, 0)` to
@@ -260,6 +272,7 @@ impl Document {
 
     fn commit(&mut self, edit: Edit) {
         edit.apply(&mut self.state);
+        self.revision += 1;
         self.history.record(edit);
         let annotations = &self.state.annotations;
         self.selection
@@ -279,19 +292,22 @@ impl Document {
     /// Reverts the latest recorded step. Returns false if there is none.
     pub fn undo(&mut self) -> bool {
         let touched = self.history.undo(&mut self.state);
-        self.select_touched(touched)
+        self.revise(touched)
     }
 
     /// Re-applies the latest undone step. Returns false if there is none.
     pub fn redo(&mut self) -> bool {
         let touched = self.history.redo(&mut self.state);
-        self.select_touched(touched)
+        self.revise(touched)
     }
 
-    fn select_touched(&mut self, touched: Option<Vec<AnnotationId>>) -> bool {
+    /// After an undo or redo that touched `touched` (`None`: there was
+    /// nothing to undo or redo), counts it and selects what it touched.
+    fn revise(&mut self, touched: Option<Vec<AnnotationId>>) -> bool {
         let Some(touched) = touched else {
             return false;
         };
+        self.revision += 1;
         self.set_selection(touched);
         true
     }

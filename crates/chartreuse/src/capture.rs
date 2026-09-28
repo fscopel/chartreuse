@@ -237,6 +237,7 @@ fn hand_on(after: AfterCapture, image: Arc<Image>) -> Task<AppMessage> {
                 image,
                 taken: chrono::Local::now().naive_local(),
                 then_close: None,
+                source: None,
             },
         )))
     };

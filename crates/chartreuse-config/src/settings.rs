@@ -10,6 +10,7 @@
 //! save_format = "png"            # "png", "jpeg" (or "jpg"), "webp"
 //! after_capture = "open_editor"  # "open_editor", "copy", "save_and_copy"
 //! launch_at_login = false
+//! confirm_close_unsaved = true
 //!
 //! [hotkeys]
 //! display = "Ctrl+Alt+Shift+3"
@@ -35,7 +36,7 @@ use crate::pattern::FileNamePattern;
 pub const DEFAULT_SAVE_FOLDER: &str = "Chartreuse";
 
 /// Everything the user can configure.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// Where saves go; `None` means [`default_save_directory`]. Resolve it
@@ -50,8 +51,25 @@ pub struct Settings {
     pub after_capture: AfterCapture,
     /// Whether Chartreuse starts when the user logs in.
     pub launch_at_login: bool,
+    /// Whether closing an editor window whose image has not been saved or
+    /// copied since it last changed asks first.
+    pub confirm_close_unsaved: bool,
     /// The global hotkey of each capture mode.
     pub hotkeys: Hotkeys,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            save_directory: None,
+            file_name: FileNamePattern::default(),
+            save_format: SaveFormat::default(),
+            after_capture: AfterCapture::default(),
+            launch_at_login: false,
+            confirm_close_unsaved: true,
+            hotkeys: Hotkeys::default(),
+        }
+    }
 }
 
 impl Settings {
@@ -399,6 +417,7 @@ mod tests {
         assert_eq!(settings.save_format, SaveFormat::Png);
         assert_eq!(settings.after_capture, AfterCapture::OpenEditor);
         assert!(!settings.launch_at_login);
+        assert!(settings.confirm_close_unsaved);
         assert_eq!(settings.save_directory_path(), default_save_directory());
     }
 
@@ -431,6 +450,7 @@ mod tests {
             save_format: SaveFormat::WebP,
             after_capture: AfterCapture::SaveAndCopy,
             launch_at_login: true,
+            confirm_close_unsaved: false,
             hotkeys: Hotkeys::new(hotkey("Super+1"), hotkey("Super+2"), hotkey("Super+3")).unwrap(),
         };
         let text = toml_edit::ser::to_string(&settings).unwrap();

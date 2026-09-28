@@ -3,7 +3,10 @@
 //!
 //! An editor window, or the capture flow, sends [`Message::Export`] with a
 //! [`Target`] and a [`Request`]: the image (flattened, from an editor), when
-//! it was taken, and the window to close once the export succeeds, if any.
+//! it was taken, the editor window it came from and at what revision, if
+//! any, and the window to close once the export succeeds, if any. A
+//! successful export tells the editor window it came from
+//! ([`editor::Message::Exported`]), so that closing it need not ask.
 //! Failures are reported to the user ([`alert::report_error`]) and leave the
 //! window open, as does cancelling the save dialog.
 //!
@@ -62,6 +65,7 @@ use iced::{window, Subscription, Task};
 
 use crate::alert::{self, Notice};
 use crate::app::{App, Message as AppMessage};
+use crate::editor::{self, Source};
 
 /// This feature's part of the app state ([`App::export`]).
 #[derive(Debug, Default)]
@@ -99,6 +103,9 @@ pub struct Request {
     pub taken: NaiveDateTime,
     /// A window to close once the export succeeds.
     pub then_close: Option<window::Id>,
+    /// The editor window the image came from, if any, told once the export
+    /// succeeds.
+    pub source: Option<Source>,
 }
 
 /// This feature's messages ([`AppMessage::Export`]).
@@ -113,8 +120,8 @@ pub enum Message {
     /// cancelled.
     FileChosen(Request, Result<Option<PathBuf>>),
     /// A save finished: the file written, or why it failed. The window, if any,
-    /// closes on success.
-    Saved(Option<window::Id>, Result<PathBuf>),
+    /// closes on success, and the source, if any, hears of it.
+    Saved(Option<window::Id>, Option<Source>, Result<PathBuf>),
 }
 
 pub fn boot(_app: &mut App) -> Task<AppMessage> {
@@ -123,7 +130,7 @@ pub fn boot(_app: &mut App) -> Task<AppMessage> {
 
 pub fn update(app: &mut App, message: Message) -> Task<AppMessage> {
     match message {
-        Message::Export(Target::Copy, request) => copy(app, &request.image, request.then_close),
+        Message::Export(Target::Copy, request) => copy(app, &request),
         Message::Export(Target::Save, request) => {
             let directory = app.config.save_directory_path();
             Task::perform(
@@ -135,21 +142,21 @@ pub fn update(app: &mut App, message: Message) -> Task<AppMessage> {
         Message::ChooseFile(request, directory) => choose_file(app, request, directory),
         Message::FileChosen(request, Ok(Some(chosen))) => {
             let destination = Destination::of(chosen, app.config.save_format);
-            let then_close = request.then_close;
+            let (then_close, source) = (request.then_close, request.source);
             Task::perform(
                 async move { write(&request.image, &destination).map(|()| destination.path) },
-                move |saved| AppMessage::Export(Message::Saved(then_close, saved)),
+                move |saved| AppMessage::Export(Message::Saved(then_close, source, saved)),
             )
         }
         Message::FileChosen(_, Ok(None)) => {
             tracing::info!("save cancelled");
             Task::none()
         }
-        Message::Saved(then_close, Ok(path)) => {
+        Message::Saved(then_close, source, Ok(path)) => {
             tracing::info!(path = %path.display(), "saved the image");
-            close(then_close)
+            succeeded(source, then_close)
         }
-        Message::FileChosen(_, Err(error)) | Message::Saved(_, Err(error)) => {
+        Message::FileChosen(_, Err(error)) | Message::Saved(_, _, Err(error)) => {
             report(app, Target::Save, &error)
         }
     }
@@ -159,12 +166,13 @@ pub fn subscription(_app: &App) -> Subscription<AppMessage> {
     Subscription::none()
 }
 
-/// Copies `image` to the clipboard, then closes `then_close`, if any.
-fn copy(app: &mut App, image: &Image, then_close: Option<window::Id>) -> Task<AppMessage> {
-    match app.platform.clipboard.write_image(image) {
+/// Copies `request`'s image to the clipboard; if that succeeds, see
+/// [`succeeded`].
+fn copy(app: &mut App, request: &Request) -> Task<AppMessage> {
+    match app.platform.clipboard.write_image(&request.image) {
         Ok(()) => {
             tracing::info!("copied the image to the clipboard");
-            close(then_close)
+            succeeded(request.source, request.then_close)
         }
         Err(error) => report(app, Target::Copy, &error),
     }
@@ -301,10 +309,10 @@ fn save_to_directory(app: &App, request: Request) -> Task<AppMessage> {
     let directory = app.config.save_directory_path();
     let stem = app.config.file_name.expand(request.taken);
     let format = app.config.save_format;
-    let then_close = request.then_close;
+    let (then_close, source) = (request.then_close, request.source);
     Task::perform(
         async move { write_new(&request.image, format, directory, &stem) },
-        move |saved| AppMessage::Export(Message::Saved(then_close, saved)),
+        move |saved| AppMessage::Export(Message::Saved(then_close, source, saved)),
     )
 }
 
@@ -342,9 +350,13 @@ fn write_new(
     ))
 }
 
-/// Closes `window`, if any.
-fn close(window: Option<window::Id>) -> Task<AppMessage> {
-    window.map_or_else(Task::none, window::close)
+/// After a successful export: tells `source`, if any, then closes
+/// `then_close`, if any.
+fn succeeded(source: Option<Source>, then_close: Option<window::Id>) -> Task<AppMessage> {
+    let exported = source.map_or_else(Task::none, |source| {
+        Task::done(AppMessage::Editor(editor::Message::Exported(source)))
+    });
+    exported.chain(then_close.map_or_else(Task::none, window::close))
 }
 
 fn report(app: &mut App, target: Target, error: &Error) -> Task<AppMessage> {
@@ -388,6 +400,7 @@ mod tests {
                 .and_hms_opt(3, 4, 5)
                 .unwrap(),
             then_close,
+            source: None,
         }
     }
 
