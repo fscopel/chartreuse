@@ -4,7 +4,9 @@
 //! - Displays: a non-interactive screenshot of the whole desktop, split into
 //!   one capture per display (see [`crate::linux::logic::screenshot`]). The
 //!   portal asks the user for permission the first time (GNOME remembers the
-//!   answer per app); a refusal is [`Error::PermissionDenied`].
+//!   answer per app). A refusal is an [`Error::Platform`] that says so, not
+//!   [`Error::PermissionDenied`]: the app answers that with its macOS
+//!   guidance (System Settings, relaunching), which does not apply here.
 //! - Interactively ([`Capture::capture_interactively`]): the portal's own
 //!   dialog lets the user pick a window (GNOME, KDE), and on GNOME an area
 //!   or a display as well; wlroots portals capture the whole desktop instead.
@@ -26,7 +28,6 @@ use std::path::PathBuf;
 use ashpd::desktop::screenshot::Screenshot;
 use chartreuse_core::display::DisplayLayout;
 use chartreuse_core::image::Image;
-use chartreuse_core::permission::Permission;
 use chartreuse_core::window::WindowId;
 use chartreuse_core::{Error, Result};
 use futures::future::{self, BoxFuture, FutureExt};
@@ -53,7 +54,7 @@ impl Capture for WaylandCapture {
             let displays = blocking::run("display enumeration", displays::query).await?;
             let layout = DisplayLayout::new(displays)?;
             let Some(shot) = take(false).await? else {
-                return Err(Error::PermissionDenied(Permission::ScreenRecording));
+                return Err(refused());
             };
             let images = screenshot::split(&layout, &shot)?;
             Ok(layout
@@ -77,6 +78,16 @@ impl Capture for WaylandCapture {
     fn capture_interactively(&self) -> Option<BoxFuture<'static, Result<Option<Image>>>> {
         Some(take(true).boxed())
     }
+}
+
+/// The error of a non-interactive screenshot the user (or the desktop's
+/// policy) refused.
+fn refused() -> Error {
+    Error::Platform(
+        "the desktop refused to let Chartreuse take a screenshot. Allow it when the \
+         desktop asks; some desktops keep the answer in their privacy settings"
+            .into(),
+    )
 }
 
 /// Takes a screenshot, letting the user choose what it shows if
