@@ -111,7 +111,6 @@ use recorder::Recorded;
 
 use crate::alert::{self, Notice};
 use crate::app::{App, Message as AppMessage};
-use crate::export::SAVE_FORMAT;
 use crate::hotkeys;
 use crate::windows::WindowKind;
 
@@ -880,7 +879,7 @@ fn file_name_note(config: &Settings, field: &Field, time: NaiveDateTime) -> Note
         Some(error) => Note::Problem(error.clone()),
         None => Note::Hint(format!(
             "For example: {}",
-            config.file_name.file_name(time, SAVE_FORMAT)
+            config.file_name.file_name(time, config.save_format)
         )),
     }
 }
