@@ -133,10 +133,7 @@ pub fn flatten(document: &Document) -> Result<Image> {
         flattener.flush();
         flattener.image
     };
-    match document
-        .crop()
-        .and_then(|crop| clip(&image, crop.pixels()?))
-    {
+    match document.crop_pixels() {
         Some(crop) => chartreuse_imaging::crop(&image, crop),
         None => Ok(image),
     }

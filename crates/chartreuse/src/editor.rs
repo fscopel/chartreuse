@@ -13,9 +13,11 @@
 //! (which not every platform reports by itself), so it draws highlighters at
 //! the display's resolution.
 //!
-//! # Exporting
+//! # The status bar
 //!
-//! The buttons along the bottom of the window export the image:
+//! The bar along the bottom of the window shows the size, in pixels, of the
+//! image an export produces ([`Document::export_size`]: the crop's, if the
+//! image is cropped), and the buttons that export it:
 //!
 //! | Button          | Shortcut  | Does                                          |
 //! |-----------------|-----------|-----------------------------------------------|
@@ -33,6 +35,8 @@
 //!
 //! Closing an editor window discards it, annotations included, without asking:
 //! v1 has no unsaved-changes confirmation.
+//!
+//! [`Document::export_size`]: chartreuse_editor::model::Document::export_size
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -182,8 +186,7 @@ pub fn title(app: &App, window: window::Id) -> String {
     )
 }
 
-/// The editor window's contents: its [`Editor`] widget above the export
-/// buttons.
+/// The editor window's contents: its [`Editor`] widget above the status bar.
 pub fn view(app: &App, window: window::Id) -> Element<'_, AppMessage> {
     match app.editor.get(window) {
         Some(editor) => column![
@@ -193,7 +196,7 @@ pub fn view(app: &App, window: window::Id) -> Element<'_, AppMessage> {
                     .map(move |message| AppMessage::Editor(Message::Widget(window, message)))
             )
             .height(Length::Fill),
-            export_buttons(window),
+            status_bar(editor, window),
         ]
         .into(),
         None => space().into(),
@@ -288,8 +291,9 @@ fn export(app: &mut App, window: window::Id, action: Action) -> Task<AppMessage>
     )
 }
 
-/// The export buttons along the bottom of editor window `window`.
-fn export_buttons<'a>(window: window::Id) -> Element<'a, AppMessage> {
+/// The bar along the bottom of editor window `window`: the size of the image
+/// an export of `editor` produces, then the export buttons.
+fn status_bar<'a>(editor: &Editor, window: window::Id) -> Element<'a, AppMessage> {
     let action = |label: &'a str, target, close| {
         button(text(label))
             .style(if close {
@@ -310,7 +314,9 @@ fn export_buttons<'a>(window: window::Id) -> Element<'a, AppMessage> {
         };
         text(hint)
     };
+    let size = editor.document().export_size();
     row![
+        text(format!("{} × {} px", size.width, size.height)),
         space().width(Length::Fill),
         tooltip(
             action("Copy", Target::Copy, false),

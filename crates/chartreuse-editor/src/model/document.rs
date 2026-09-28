@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use chartreuse_core::geometry::{PhysicalRect, PhysicalSize};
 use chartreuse_core::image::Image;
 
 use super::annotation::{Annotation, AnnotationId, Shape};
@@ -85,6 +86,23 @@ impl Document {
     #[must_use]
     pub fn cropped_bounds(&self) -> Rect {
         self.crop().unwrap_or_else(|| self.bounds())
+    }
+
+    /// The base image's pixels an export keeps: the crop's
+    /// [pixels](Rect::pixels) within the image. `None` if an export keeps
+    /// them all: the document is uncropped, or cropped entirely outside the
+    /// image.
+    #[must_use]
+    pub fn crop_pixels(&self) -> Option<PhysicalRect> {
+        let image = PhysicalRect::new(0, 0, self.base.width(), self.base.height());
+        self.crop()?.pixels()?.intersection(&image)
+    }
+
+    /// The size, in pixels, of the image an export produces.
+    #[must_use]
+    pub fn export_size(&self) -> PhysicalSize {
+        self.crop_pixels()
+            .map_or(self.base.size(), |pixels| pixels.size)
     }
 
     /// Every annotation, bottom to top.

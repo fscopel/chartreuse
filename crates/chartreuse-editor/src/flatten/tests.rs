@@ -545,7 +545,9 @@ fn a_crop_cuts_the_flattened_image_down_last() {
     let crop = |document: &mut Document, ax, ay, bx, by| {
         let rect = Rect::from_corners(Point::new(ax, ay), Point::new(bx, by));
         document.apply(Command::SetCrop(Some(rect)));
-        flatten(document).unwrap()
+        let flattened = flatten(document).unwrap();
+        assert_eq!(document.export_size(), flattened.size(), "the export size");
+        flattened
     };
     let cropped = crop(&mut document, 10.0, 5.0, 45.0, 30.0);
     assert!(cropped == chartreuse_imaging::crop(&whole, PhysicalRect::new(10, 5, 35, 25)).unwrap());
