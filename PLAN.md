@@ -399,11 +399,14 @@ Troubleshooting:
    expected: the app is not sandboxed (Mac App Store distribution is out of scope), and
    ScreenCaptureKit needs no entitlement outside the sandbox. Nested code, if any, is
    signed inside-out before the bundle; `--deep` signing is avoided.
-4. Package the app into a disk image with `hdiutil` and sign the disk image.
-5. Submit the disk image for notarization with `xcrun notarytool`, authenticating with an
-   App Store Connect API key (a stored keychain profile locally, secrets in CI).
-6. Staple the notarization ticket to the disk image and the app with `xcrun stapler`, so
-   Gatekeeper can verify it offline.
+4. Submit the app (zipped) for notarization with `xcrun notarytool`, authenticating with
+   an App Store Connect API key (a stored keychain profile locally, secrets in CI), and
+   staple the ticket to the app with `xcrun stapler`, so the copy users drag out of the
+   disk image carries its own ticket and Gatekeeper can verify it offline. (Notarizing
+   only the disk image would cover the app, but staple the ticket to the image alone.)
+5. Package the stapled app into a disk image with `hdiutil`, beside a link to
+   `/Applications`, and sign the disk image.
+6. Submit the disk image for notarization and staple its ticket.
 7. Verify with `codesign` (strict verification), `spctl` (Gatekeeper assessment), and
    `stapler` (ticket validation).
 

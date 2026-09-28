@@ -81,7 +81,8 @@ See [macOS code signing](PLAN.md#macos-code-signing) for the background.
 
 - [rustup](https://rustup.rs). The toolchain version is pinned in
   `rust-toolchain.toml` and installed automatically.
-- Xcode Command Line Tools (`xcode-select --install`) for `codesign` and `iconutil`.
+- Xcode Command Line Tools (`xcode-select --install`) for `codesign` and `iconutil`
+  (and, for releases, `lipo`, `notarytool`, and `stapler`).
 
 ### 2. A signing identity
 
@@ -191,7 +192,8 @@ Everything beyond `cargo build` is a `cargo xtask` command, and CI runs nothing 
 | `cargo xtask bundle` | Signed `target/debug/Chartreuse Dev.app` (macOS) |
 | `cargo xtask run` | `bundle`, then launch it through LaunchServices. `--fake` uses the synthetic platform backend |
 | `cargo xtask dev-cert` | Once per machine (macOS): create the self-signed development signing identity that `bundle` uses when `CHARTREUSE_SIGN_IDENTITY` is unset |
-| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: `Chartreuse.app` signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), zipped; `--allow-ad-hoc` signs ad-hoc instead when the variable is unset, and the archive name ends in `-unsigned`. Windows (`.zip`) and Linux (`.tar.gz`): the executable with `LICENSE` and `README.md`. |
+| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). `--allow-ad-hoc`: when that variable is unset, sign the app ad-hoc and skip signing the disk image and notarization; the name ends in `-unsigned`. Windows (`.zip`) and Linux (`.tar.gz`): the executable with `LICENSE` and `README.md`. |
+| `cargo xtask ci-keychain` | CI (macOS): import the Developer ID identity from `CHARTREUSE_SIGN_P12_BASE64` (a base64-encoded `.p12`) and `CHARTREUSE_SIGN_P12_PASSWORD` into a temporary keychain that `codesign` uses without prompting, and print it. `--skip-if-unset` succeeds without doing anything when `CHARTREUSE_SIGN_P12_BASE64` is unset. Remove the keychain afterwards with the `security delete-keychain` command it prints (GitHub-hosted runners are discarded anyway). |
 | `cargo xtask upload-release <tag>` | Attach every file in `target/dist/` to the GitHub release `<tag>` with the [GitHub CLI](https://cli.github.com) (`gh`), replacing assets of the same name. The tag must be `v<version>` for the `Cargo.toml` version, and every file must be named for that version. Needs `GH_TOKEN` (or `gh auth login`), and `GH_REPO=owner/repo` outside a git checkout. |
 
 The build flavor (development or release: bundle identifier, name, accent color) is
@@ -212,10 +214,11 @@ GitHub Actions builds every platform and attaches the archives to the release
    trial). Do not *Save draft* first: GitHub runs no workflows for drafts, and the
    workflow runs when a release is created, not when a draft is published.
 3. The *Release* workflow builds on macOS, Windows, and Linux, then attaches:
-   - `Chartreuse-<version>-macos-aarch64-unsigned.zip`: Apple silicon, **ad-hoc
-     signed** until Developer ID signing and notarization land (track 5A).
-     Gatekeeper blocks it on first launch; allow it under *System Settings →
-     Privacy & Security → Open Anyway*.
+   - `Chartreuse-<version>-macos-universal.dmg`: Apple silicon and Intel, signed with
+     Developer ID and notarized. Until the [signing secrets](#release-signing-secrets)
+     exist it is `Chartreuse-<version>-macos-universal-unsigned.dmg`, **ad-hoc
+     signed** and not notarized: Gatekeeper blocks it on first launch; allow it under
+     *System Settings → Privacy & Security → Open Anyway*.
    - `Chartreuse-<version>-windows-x86_64.zip`
    - `Chartreuse-<version>-linux-x86_64.tar.gz`
 
@@ -224,7 +227,71 @@ Re-running a failed job replaces that platform's assets. Running the workflow by
 (*Actions → Release → Run workflow*) is a dry run: it builds a branch on every
 platform and keeps the archives as workflow artifacts, attaching nothing. Without
 GitHub Actions, run `cargo xtask release` and then `cargo xtask upload-release
-v<version>` on each platform.
+v<version>` on each platform (on macOS, set up signing first:
+[From a developer machine](#from-a-developer-machine-macos)).
+
+### Release signing secrets
+
+The macOS job signs and notarizes once these repository secrets exist (*Settings →
+Secrets and variables → Actions*). Without `CHARTREUSE_RELEASE_SIGN_IDENTITY` it
+builds the `-unsigned` disk image; with it, a missing notarization secret fails the
+job rather than publishing an app Gatekeeper rejects.
+
+| Secret | Value |
+|---|---|
+| `CHARTREUSE_SIGN_P12_BASE64` | The Developer ID Application certificate and its private key, exported from Keychain Access (*My Certificates*, select both, *Export 2 items…*) as a `.p12` with a password, then `base64 -i identity.p12` |
+| `CHARTREUSE_SIGN_P12_PASSWORD` | That `.p12`'s password |
+| `CHARTREUSE_RELEASE_SIGN_IDENTITY` | The identity's name (`Developer ID Application: Your Name (TEAMID)`) or SHA-1 hash, as `security find-identity -v -p codesigning` lists it |
+| `CHARTREUSE_NOTARY_KEY` | The contents of an App Store Connect API key file (`AuthKey_<key ID>.p8`: App Store Connect → *Users and Access → Integrations → App Store Connect API*, role *Developer*) |
+| `CHARTREUSE_NOTARY_KEY_ID` | That key's ID |
+| `CHARTREUSE_NOTARY_ISSUER` | The issuer ID shown above the list of keys |
+
+### From a developer machine (macOS)
+
+`cargo xtask release` runs the whole macOS release locally, exactly as CI does.
+Once per machine:
+
+1. Get a **Developer ID Application** certificate (a paid Apple Developer Program
+   membership): Xcode → *Settings → Accounts → Manage Certificates → + → Developer ID
+   Application*. `security find-identity -v -p codesigning` then lists it.
+2. Store notarization credentials in a keychain profile, from an App Store Connect API
+   key (see [the secrets](#release-signing-secrets)) or an Apple ID with an
+   app-specific password:
+
+   ```sh
+   xcrun notarytool store-credentials chartreuse \
+     --key AuthKey_ABC123.p8 --key-id ABC123 --issuer 69a6de7e-...
+   # or: xcrun notarytool store-credentials chartreuse --apple-id you@example.com --team-id TEAMID
+   ```
+
+Then, for each release:
+
+```sh
+export CHARTREUSE_RELEASE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export CHARTREUSE_NOTARY_PROFILE=chartreuse
+cargo xtask release
+cargo xtask upload-release v0.2.0   # attach target/dist/* to the GitHub release
+```
+
+Instead of a profile, `CHARTREUSE_NOTARY_KEY_ID`, `CHARTREUSE_NOTARY_ISSUER`, and
+either `CHARTREUSE_NOTARY_KEY_PATH` (the `.p8` file) or `CHARTREUSE_NOTARY_KEY` (its
+contents) select an API key directly. A missing or conflicting variable fails the
+release, before anything is built, with a message naming it.
+
+`release` builds `aarch64-apple-darwin` and `x86_64-apple-darwin` (adding the Intel
+target with `rustup target add` the first time) and merges them with `lipo`; signs
+`Chartreuse.app` with the hardened runtime, a secure timestamp, and
+`assets/macos/Chartreuse.entitlements`; notarizes and staples the app, so the copy
+users drag out of the disk image carries its own ticket; builds the disk image with
+`hdiutil`, signs, notarizes, and staples it; and finally verifies both with
+`codesign --verify --strict`, `spctl`, and `stapler validate`. The two notarization
+round trips usually take a few minutes each. The result is
+`target/dist/Chartreuse-<version>-macos-universal.dmg`.
+
+Without a certificate, `cargo xtask release --allow-ad-hoc` builds the same disk image
+from an ad-hoc signed app, unsigned and not notarized, as
+`Chartreuse-<version>-macos-universal-unsigned.dmg`: useful for testing the packaging,
+not for distribution.
 
 ## Repository layout
 
@@ -237,4 +304,5 @@ v<version>` on each platform.
 | `crates/chartreuse-config` | Settings schema and persistence |
 | `crates/chartreuse-overlay` | Selection overlay canvas programs |
 | `crates/chartreuse-editor` | Editor document model, tools, and canvas |
+| `assets` | Icon sources and generated icons; `assets/macos/Chartreuse.entitlements`, the entitlements every macOS build is signed with (none, deliberately) |
 | `xtask` | Build automation (`cargo xtask`) |

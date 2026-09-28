@@ -450,19 +450,27 @@ Depends on: the bundle identifier decision, Stage 3. Owns: the macOS part of the
 `release` xtask command, `cargo xtask ci-keychain`, and the macOS signing credentials in
 the release workflows (1H owns the workflows themselves).
 
-- [ ] Universal binary with `lipo` (`aarch64` + `x86_64`)
-- [ ] Release `Info.plist` and entitlements file
-- [ ] Developer ID signing with hardened runtime and a secure timestamp, signing nested
+- [x] Universal binary with `lipo` (`aarch64` + `x86_64`)
+- [x] Release `Info.plist` and entitlements file
+- [x] Developer ID signing with hardened runtime and a secure timestamp, signing nested
       code inside-out, without `--deep`
-- [ ] Disk image built with `hdiutil`, then signed
-- [ ] Notarization with `notarytool` (API key or keychain profile, from env vars), then
+- [x] Disk image built with `hdiutil`, then signed
+- [x] Notarization with `notarytool` (API key or keychain profile, from env vars), then
       stapling
-- [ ] Verification with `codesign --verify --strict`, `spctl`, and `stapler validate`,
+- [x] Verification with `codesign --verify --strict`, `spctl`, and `stapler validate`,
       run as part of `cargo xtask release`
-- [ ] `cargo xtask ci-keychain`: temporary keychain, `.p12` import, key partition list;
+- [x] `cargo xtask ci-keychain`: temporary keychain, `.p12` import, key partition list;
       the release workflow calls it before `cargo xtask release` (`rcodesign` if
       keychain handling proves fragile)
-- [ ] Document cutting a release from a developer machine with `cargo xtask release`
+- [x] Document cutting a release from a developer machine with `cargo xtask release`
+
+Not yet exercised against Apple: no Developer ID certificate or notarization
+credentials were available while building this track, so Developer ID signing,
+notarization, stapling, and the `spctl`/`stapler` checks have only been checked by
+unit tests of their arguments. The first credentialed `cargo xtask release` (locally,
+or in the workflow once the README's "Release signing secrets" exist) is their first
+real run. The ad-hoc path (`--allow-ad-hoc`: universal app, disk image, `codesign`
+verification) and `ci-keychain` (with a self-signed identity) were run end to end.
 
 ### 5B — Windows installer
 
