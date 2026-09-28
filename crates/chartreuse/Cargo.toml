@@ -34,12 +34,14 @@ clap = { version = "4.6.6", default-features = false, features = [
 [target.'cfg(unix)'.dependencies]
 dirs.workspace = true
 
-# The single-instance named pipe (`ipc`).
+# The single-instance named pipe (`ipc`), and closing a console the instance
+# was given of its own (`lib.rs`).
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Storage_FileSystem",
+    "Win32_System_Console",
     "Win32_System_IO",
     "Win32_System_Pipes",
     "Win32_System_Threading",

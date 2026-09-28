@@ -121,6 +121,8 @@ fn run_app(ipc: ipc::State) -> ExitCode {
         "starting {}",
         flavor::DISPLAY_NAME
     );
+    #[cfg(windows)]
+    leave_own_console();
 
     // iced boots once; the cell hands the state over by value.
     let ipc = Cell::new(Some(ipc));
@@ -138,6 +140,31 @@ fn run_app(ipc: ipc::State) -> ExitCode {
         Err(error) => {
             tracing::error!(%error, "{} failed", flavor::DISPLAY_NAME);
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// Closes the console window Windows opens for a console program started
+/// outside a terminal (from Explorer, a shortcut, or a login item), which
+/// would otherwise stay open behind the tray icon until the app quits. From a
+/// terminal the console is shared with the shell, so it stays, and the
+/// instance keeps logging there.
+///
+/// Chartreuse stays a console program so that the command line can report to
+/// the terminal and its exit status is waited for.
+#[cfg(windows)]
+fn leave_own_console() {
+    use ::windows::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
+
+    // Room for one more process than this one: enough to tell alone from shared.
+    let mut processes = [0; 2];
+    // SAFETY: the buffer is valid for its length, which the binding passes.
+    let attached = unsafe { GetConsoleProcessList(&mut processes) };
+    if attached == 1 {
+        // SAFETY: detaching only invalidates the standard handles, whose
+        // writes (the logs) then fail quietly.
+        if let Err(error) = unsafe { FreeConsole() } {
+            tracing::debug!(%error, "could not close the console window");
         }
     }
 }
