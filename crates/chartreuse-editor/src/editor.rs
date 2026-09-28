@@ -36,6 +36,12 @@ pub enum Message {
     /// Sets how blur regions obscure what is beneath them, like
     /// [`Message::Color`].
     BlurMode(BlurMode),
+    /// Sets the text background's color, keeping its opacity, like
+    /// [`Message::Color`].
+    TextBackground(Rgba8),
+    /// Sets the text background's opacity (its alpha), keeping its color,
+    /// like [`Message::Color`].
+    TextBackgroundOpacity(u8),
     /// Uncrops the document (one undo step), dropping any crop being edited.
     ClearCrop,
     /// Input from the resize tool's toolbar controls.
@@ -179,6 +185,20 @@ impl Editor {
             Message::FontSize(size) => {
                 self.restyle(StylePatch {
                     font_size: Some(size),
+                    ..StylePatch::default()
+                });
+                None
+            }
+            Message::TextBackground(color) => {
+                self.restyle(StylePatch {
+                    text_background_color: Some(color),
+                    ..StylePatch::default()
+                });
+                None
+            }
+            Message::TextBackgroundOpacity(opacity) => {
+                self.restyle(StylePatch {
+                    text_background_opacity: Some(opacity),
                     ..StylePatch::default()
                 });
                 None

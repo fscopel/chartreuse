@@ -48,7 +48,9 @@
 //!   [`BlurRegion::pixels`] of the result, so it obscures exactly what lies
 //!   beneath it. The canvas shows it with `obscured`, which computes the same
 //!   pixels.
-//! - Text is laid out by [`font::layout`] and each glyph rasterized by swash,
+//! - Text is first its background, [`Text::background`] filled in the style's
+//!   `text_background` color (nothing if that is fully transparent). Then it
+//!   is laid out by [`font::layout`] and each glyph rasterized by swash,
 //!   placed as iced places canvas text: the glyph's pixel origin is
 //!   [`LayoutGlyph::physical`] with the text's position as the offset, moved
 //!   down to the line's baseline (`LayoutRun::line_y`, rounded) and by the
@@ -368,7 +370,17 @@ impl Flattener {
                 }
             }
             Shape::Blur(region) => self.obscure(region, style.blur),
-            Shape::Text(text) => self.text.draw(layer, self.origin, text, style),
+            Shape::Text(text) => {
+                if style.text_background.a > 0 {
+                    let background =
+                        Text::background(text.bounds(style.font_size), style.font_size);
+                    let (min, max) = (background.min(), background.max());
+                    let path = tiny_skia::Rect::from_ltrb(min.x, min.y, max.x, max.y)
+                        .map(PathBuilder::from_rect);
+                    fill(layer, path, &self::paint(style.text_background), transform);
+                }
+                self.text.draw(layer, self.origin, text, style);
+            }
         }
     }
 

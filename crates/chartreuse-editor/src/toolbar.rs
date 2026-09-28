@@ -1,6 +1,7 @@
 //! The editor's toolbar: tools, crop and resize controls, the style controls
-//! (color, stroke width, font size, and how blur regions obscure), and undo
-//! and redo. Also the zoom controls, which the editor's owner places
+//! (color, stroke width, font size, text background, and how blur regions
+//! obscure), and undo and redo. Also the zoom controls, which the editor's
+//! owner places
 //! ([`Editor::zoom_controls`]).
 //!
 //! # Style controls
@@ -17,6 +18,9 @@
 //! spinner, whose arrows step the size by one pixel within
 //! [`STROKE_RANGE`] or [`FONT_RANGE`]. The arrows are disabled while the
 //! selected annotations' sizes differ.
+//!
+//! Text's background has its own swatches, for its color, and a list of
+//! [`OPACITIES`]; each changes only its part of the background.
 //!
 //! [`Shape::style_fields`]: crate::model::Shape::style_fields
 //!
@@ -101,6 +105,36 @@ const fn pixels<const N: usize>(values: [f32; N]) -> [Pixels; N] {
 const STROKE_OPTIONS: [Pixels; STROKE_WIDTHS.len()] = pixels(STROKE_WIDTHS);
 const FONT_OPTIONS: [Pixels; FONT_SIZES.len()] = pixels(FONT_SIZES);
 
+/// The text background opacities on offer, in percent.
+pub const OPACITIES: [u8; 11] = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+/// An opacity as an alpha, as a pick-list entry shown in percent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Opacity(u8);
+
+impl Opacity {
+    /// `percent` (0 to 100) as the nearest alpha.
+    const fn percent(percent: u8) -> Self {
+        Self(((percent as u16 * 255 + 50) / 100) as u8)
+    }
+}
+
+impl fmt::Display for Opacity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}%", (u16::from(self.0) * 100 + 127) / 255)
+    }
+}
+
+const OPACITY_OPTIONS: [Opacity; OPACITIES.len()] = {
+    let mut out = [Opacity(0); OPACITIES.len()];
+    let mut i = 0;
+    while i < OPACITIES.len() {
+        out[i] = Opacity::percent(OPACITIES[i]);
+        i += 1;
+    }
+    out
+};
+
 /// What a style control shows (see the [module docs](self#style-controls)).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Control<T> {
@@ -117,6 +151,10 @@ struct Panel {
     stroke_width: Control<f32>,
     font_size: Control<f32>,
     blur: Control<BlurMode>,
+    /// The text background's color, opaque.
+    text_background: Control<Rgba8>,
+    /// The text background's opacity (alpha).
+    text_background_opacity: Control<u8>,
 }
 
 impl Panel {
@@ -144,6 +182,23 @@ impl Panel {
             ),
             font_size: control(&selected, made, |f| f.font_size, &style, |s| s.font_size),
             blur: control(&selected, made, |f| f.blur, &style, |s| s.blur),
+            text_background: control(
+                &selected,
+                made,
+                |f| f.text_background,
+                &style,
+                |s| Rgba8 {
+                    a: u8::MAX,
+                    ..s.text_background
+                },
+            ),
+            text_background_opacity: control(
+                &selected,
+                made,
+                |f| f.text_background,
+                &style,
+                |s| s.text_background.a,
+            ),
         }
     }
 }
@@ -220,7 +275,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         group(
             COLORS
                 .into_iter()
-                .map(|color| swatch(color, Some(color) == chosen)),
+                .map(|color| swatch(color, Some(color) == chosen, Message::Color(color))),
         )
     });
 
@@ -248,6 +303,23 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         sizes.push(spinner(size, FONT_RANGE, Message::FontSize));
     }
     let sizes = (!sizes.is_empty()).then(|| group(sizes));
+
+    let background = shown(panel.text_background)
+        .zip(shown(panel.text_background_opacity))
+        .map(|(chosen, opacity)| {
+            let swatches = COLORS
+                .into_iter()
+                .map(|color| swatch(color, Some(color) == chosen, Message::TextBackground(color)));
+            let opacity = pick_list(&OPACITY_OPTIONS[..], opacity.map(Opacity), |Opacity(a)| {
+                Message::TextBackgroundOpacity(a)
+            })
+            .placeholder("Mixed");
+            group(
+                std::iter::once(text("Background").into())
+                    .chain(swatches)
+                    .chain([opacity.into()]),
+            )
+        });
 
     let blur = shown(panel.blur).map(|chosen| {
         group(BlurMode::ALL.into_iter().map(|mode| {
@@ -278,6 +350,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         .push(resize)
         .push(colors)
         .push(sizes)
+        .push(background)
         .push(blur)
         .push(history)
         .spacing(GROUP_SPACING)
@@ -376,12 +449,13 @@ fn group<'a>(items: impl IntoIterator<Item = Element<'a, Message>>) -> Row<'a, M
         .align_y(Alignment::Center)
 }
 
-/// A color swatch button, ringed in the accent when `chosen`.
-fn swatch<'a>(color: Rgba8, chosen: bool) -> Element<'a, Message> {
+/// A color swatch button sending `message`, ringed in the accent when
+/// `chosen`.
+fn swatch<'a>(color: Rgba8, chosen: bool, message: Message) -> Element<'a, Message> {
     let fill = canvas::color(color);
     button(space().width(SWATCH).height(SWATCH))
         .padding(0)
-        .on_press(Message::Color(color))
+        .on_press(message)
         .style(move |theme: &Theme, status| {
             let palette = theme.extended_palette();
             let ring = if chosen {
@@ -452,6 +526,7 @@ mod tests {
     use crate::editor::testing::{at, click, drag, editor, modifiers, named, type_text};
 
     const BLUE: Rgba8 = COLORS[4];
+    const WHITE: Rgba8 = Rgba8::WHITE;
 
     /// A line in the default style and a blue text of font size 40, with
     /// nothing selected, back in the select tool.
@@ -481,6 +556,8 @@ mod tests {
                 stroke_width: Control::Shown(Some(style.stroke_width)),
                 font_size: Control::Shown(Some(40.0)),
                 blur: Control::Shown(Some(BlurMode::Pixelate)),
+                text_background: Control::Shown(Some(WHITE)),
+                text_background_opacity: Control::Shown(Some(Style::DEFAULT_TEXT_BACKGROUND.a)),
             }
         );
     }
@@ -495,6 +572,7 @@ mod tests {
         assert_eq!(line.stroke_width, Control::Shown(Some(stroke)));
         assert_eq!(line.font_size, Control::Hidden, "not for a line");
         assert_eq!(line.blur, Control::Hidden);
+        assert_eq!(line.text_background, Control::Hidden);
 
         // Shift-click the text too: the colors differ; each size comes from
         // the one kind that has it.
@@ -508,6 +586,8 @@ mod tests {
                 stroke_width: Control::Shown(Some(stroke)),
                 font_size: Control::Shown(Some(40.0)),
                 blur: Control::Hidden,
+                text_background: Control::Shown(Some(WHITE)),
+                text_background_opacity: Control::Shown(Some(Style::DEFAULT_TEXT_BACKGROUND.a)),
             }
         );
 
@@ -521,6 +601,11 @@ mod tests {
             (line.style.font_size, text.style.font_size),
             (unchanged, 64.0)
         );
+
+        // So does its background's opacity, keeping its color.
+        editor.update(Message::TextBackgroundOpacity(0));
+        let text = &editor.document().annotations()[1];
+        assert_eq!(text.style.text_background, Rgba8::new(255, 255, 255, 0));
     }
 
     #[test]
@@ -542,6 +627,7 @@ mod tests {
         assert_eq!(step.blur, Control::Shown(Some(BlurMode::Gaussian)));
         assert_eq!(step.font_size, Control::Shown(Some(40.0)), "for new steps");
         assert_eq!(step.stroke_width, Control::Hidden);
+        assert_eq!(step.text_background, Control::Hidden, "steps have none");
     }
 
     #[test]
@@ -557,6 +643,8 @@ mod tests {
                 stroke_width: Control::Hidden,
                 font_size: Control::Hidden,
                 blur: Control::Hidden,
+                text_background: Control::Hidden,
+                text_background_opacity: Control::Hidden,
             }
         );
     }

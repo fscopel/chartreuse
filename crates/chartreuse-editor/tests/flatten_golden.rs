@@ -56,10 +56,13 @@ fn style(color: Rgba8, stroke_width: f32) -> Style {
     }
 }
 
+/// Text in `color`, with no background, so the references show the glyphs
+/// alone (the background is tested in `flatten`'s own tests).
 fn text_style(color: Rgba8, font_size: f32) -> Style {
     Style {
         color,
         font_size,
+        text_background: Rgba8::TRANSPARENT,
         ..Style::default()
     }
 }

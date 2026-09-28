@@ -577,10 +577,12 @@ mod tests {
     #[test]
     fn text_size_is_stored_only_for_text_and_valid_sizes() {
         let mut doc = document();
-        let text = doc.add(
-            Shape::Text(Text::new(Point::ORIGIN, "hi")),
-            Style::default(),
-        );
+        // No background, so the text's bounds are its layout box.
+        let bare = Style {
+            text_background: Rgba8::TRANSPARENT,
+            ..Style::default()
+        };
+        let text = doc.add(Shape::Text(Text::new(Point::ORIGIN, "hi")), bare);
         let line = doc.add(line(0.0, 0.0, 1.0, 1.0), Style::default());
         assert!(!doc.set_text_size(line, Size::new(10.0, 10.0)));
         assert!(!doc.set_text_size(text, Size::new(f32::NAN, 10.0)));

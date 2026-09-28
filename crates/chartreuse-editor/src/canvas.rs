@@ -86,7 +86,9 @@
 //!   The editor keeps each region's image until the region, its
 //!   [`BlurMode`], or an annotation beneath it that can reach it changes (as
 //!   drawn, so a preview of those updates it too).
-//! - Text is iced canvas text: shaped by cosmic-text and rasterized by the
+//! - Text is first its background, [`Text::background`] filled with the
+//!   style's `text_background` color (none if that is fully transparent),
+//!   then iced canvas text: shaped by cosmic-text and rasterized by the
 //!   renderer's glyph cache, in [`font::FONT`], at `font_size` with a line
 //!   height of `font_size × Text::LINE_HEIGHT` (both × `scale`), the layout
 //!   box's top-left corner at the text's `position`, filled with the color
@@ -96,6 +98,7 @@
 //! The base image fills its rectangle, filtered nearest-neighbor at a scale
 //! of 1 or more (so zoomed-in pixels stay crisp) and bilinearly below.
 //!
+//! [`Text::background`]: crate::model::Text::background
 //! [`ArrowHead::base`]: crate::model::ArrowHead::base
 //! [`Rect::corners`]: crate::model::Rect::corners
 //! [`Ellipse::curves`]: crate::model::Ellipse::curves
@@ -240,23 +243,23 @@ pub enum Primitive {
 }
 
 impl Primitive {
-    /// The kind of primitive `shape` draws first.
+    /// The kind of primitive `shape` draws first (text its background, a
+    /// mesh, even when it is transparent).
     #[must_use]
     pub const fn first(shape: &Shape) -> Self {
         match shape {
             Shape::Highlighter(_) => Self::Image,
-            Shape::Text(_) => Self::Text,
             _ => Self::Mesh,
         }
     }
 
     /// The kind of primitive `shape` draws last (a step marker's disc is a
-    /// mesh, its number text; a blur region's backdrop is a mesh, its pixels
-    /// an image).
+    /// mesh, its number text; text's background is a mesh, its glyphs text;
+    /// a blur region's backdrop is a mesh, its pixels an image).
     #[must_use]
     pub const fn last(shape: &Shape) -> Self {
         match shape {
-            Shape::Step(_) => Self::Text,
+            Shape::Step(_) | Shape::Text(_) => Self::Text,
             Shape::Blur(_) => Self::Image,
             _ => Self::first(shape),
         }
@@ -595,6 +598,8 @@ impl Scene<'_> {
                 let style = edit.style();
                 let position = viewport.to_canvas(edit.position());
                 frame.with_clip(clip, |frame| {
+                    let bounds = Rect::new(edit.position(), edit.size());
+                    render::text_background(frame, &viewport, bounds, &style);
                     let text =
                         render::canvas_text(edit.content(), position, &style, viewport.scale());
                     frame.fill_text(text);
@@ -857,17 +862,25 @@ mod tests {
     #[test]
     fn runs_split_where_an_annotation_draws_an_earlier_primitive() {
         assert_eq!(runs(document("").annotations()), Vec::<Range<usize>>::new());
-        assert_eq!(runs(document("sstt").annotations()), vec![0..4]);
+        // Text is a mesh (its background) then text, so shapes and one text
+        // share a run, but text over text starts a new one.
+        assert_eq!(runs(document("sst").annotations()), vec![0..3]);
+        assert_eq!(runs(document("sstt").annotations()), vec![0..3, 3..4]);
         assert_eq!(runs(document("tsts").annotations()), vec![0..1, 1..3, 3..4]);
-        assert_eq!(runs(document("sttsst").annotations()), vec![0..3, 3..6]);
-        // Highlighters are images: after shapes, before text.
-        assert_eq!(runs(document("shht").annotations()), vec![0..4]);
+        assert_eq!(
+            runs(document("sttsst").annotations()),
+            vec![0..2, 2..3, 3..6]
+        );
+        // Highlighters are images: after shapes, before text, not below it.
+        assert_eq!(runs(document("shh").annotations()), vec![0..3]);
+        assert_eq!(runs(document("shht").annotations()), vec![0..3, 3..4]);
         assert_eq!(runs(document("hsth").annotations()), vec![0..1, 1..3, 3..4]);
         // Step markers are a mesh then text.
-        assert_eq!(runs(document("snt").annotations()), vec![0..3]);
+        assert_eq!(runs(document("sn").annotations()), vec![0..2]);
+        assert_eq!(runs(document("snt").annotations()), vec![0..2, 2..3]);
         assert_eq!(runs(document("nsn").annotations()), vec![0..1, 1..3]);
         // Blur regions are a mesh (their backdrop) then an image.
-        assert_eq!(runs(document("sbht").annotations()), vec![0..4]);
+        assert_eq!(runs(document("sbh").annotations()), vec![0..3]);
         assert_eq!(runs(document("bsb").annotations()), vec![0..1, 1..3]);
     }
 

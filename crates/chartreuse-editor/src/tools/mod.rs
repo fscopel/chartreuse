@@ -164,7 +164,8 @@ impl ToolKind {
             | Self::Ellipse
             | Self::Pen
             | Self::Highlighter => StyleFields::STROKE,
-            Self::Text | Self::Step => StyleFields::TEXT,
+            Self::Text => StyleFields::TEXT_BOX,
+            Self::Step => StyleFields::TEXT,
             Self::Blur => StyleFields::BLUR,
         }
     }

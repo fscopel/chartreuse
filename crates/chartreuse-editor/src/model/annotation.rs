@@ -119,7 +119,8 @@ impl Shape {
     /// - Step marker: within `tolerance` of its disc ([`StepMarker::radius`]).
     /// - Blur region: inside its rectangle grown by `tolerance`; it covers
     ///   what is beneath it, so all of it hits.
-    /// - Text: inside [`Text::bounds`] grown by `tolerance`.
+    /// - Text: inside [`Text::covered`] (its background, or if it has none
+    ///   its layout box) grown by `tolerance`.
     #[must_use]
     pub fn hit(&self, style: &Style, point: Point, tolerance: f32) -> bool {
         let tolerance = tolerance.max(0.0);
@@ -144,18 +145,15 @@ impl Shape {
                 point.distance(step.center) <= StepMarker::radius(style.font_size) + tolerance
             }
             Self::Blur(region) => region.rect.expand(tolerance).contains(point),
-            Self::Text(text) => text
-                .bounds(style.font_size)
-                .expand(tolerance)
-                .contains(point),
+            Self::Text(text) => text.covered(style).expand(tolerance).contains(point),
         }
     }
 
     /// The smallest rectangle containing everything the shape draws with
     /// `style`: strokes reach `stroke_width / 2` past their path in every
     /// direction (round caps and joins; see [`Style`]), arrows include their
-    /// head, text its layout box. Used for selection outlines and marquee
-    /// selection.
+    /// head, text its background or layout box. Used for selection outlines
+    /// and marquee selection.
     #[must_use]
     pub fn bounds(&self, style: &Style) -> Rect {
         let half = half_stroke(style);
@@ -179,15 +177,15 @@ impl Shape {
                 center.expand(StepMarker::radius(style.font_size))
             }
             Self::Blur(region) => region.rect,
-            Self::Text(text) => text.bounds(style.font_size),
+            Self::Text(text) => text.covered(style),
         }
     }
 
     /// The style fields the shape draws with, the only ones restyling
     /// changes ([`Command::Restyle`](super::Command::Restyle)): color and
     /// stroke width for strokes (a line, arrow, rectangle, ellipse, pen, or
-    /// highlighter), color and font size for text and step markers, and only
-    /// the blur mode for a blur region.
+    /// highlighter), color and font size for step markers, those and the
+    /// background for text, and only the blur mode for a blur region.
     #[must_use]
     pub const fn style_fields(&self) -> StyleFields {
         match self {
@@ -197,7 +195,8 @@ impl Shape {
             | Self::Ellipse(_)
             | Self::Pen(_)
             | Self::Highlighter(_) => StyleFields::STROKE,
-            Self::Step(_) | Self::Text(_) => StyleFields::TEXT,
+            Self::Step(_) => StyleFields::TEXT,
+            Self::Text(_) => StyleFields::TEXT_BOX,
             Self::Blur(_) => StyleFields::BLUR,
         }
     }
@@ -542,6 +541,13 @@ impl BlurRegion {
 /// again after anything that changes the layout: the content or the font size)
 /// the size is estimated from the font size. Renderers use a line height of
 /// `font_size × LINE_HEIGHT` so measurements and estimates agree on height.
+///
+/// # Background
+///
+/// Text is drawn on a background: a rectangle filled with the style's
+/// `text_background` color ([`Text::background`]), its layout box grown by
+/// [`Text::BACKGROUND_PADDING`] on every side. A fully transparent background
+/// draws nothing and does not count as part of the text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Text {
     /// The top-left corner of the layout box.
@@ -558,6 +564,9 @@ impl Text {
     pub const LINE_HEIGHT: f32 = 1.2;
     /// Estimated average glyph advance per unit of font size.
     pub const ESTIMATED_ADVANCE: f32 = 0.6;
+    /// How far the background reaches past the layout box on each side, per
+    /// unit of font size.
+    pub const BACKGROUND_PADDING: f32 = 0.2;
 
     #[must_use]
     pub fn new(position: Point, content: impl Into<String>) -> Self {
@@ -590,6 +599,27 @@ impl Text {
     #[must_use]
     pub fn bounds(&self, font_size: f32) -> Rect {
         Rect::new(self.position, self.size(font_size))
+    }
+
+    /// The background behind a layout box `bounds` of text at `font_size`:
+    /// the box grown by [`Text::BACKGROUND_PADDING`] × `font_size`, its edges
+    /// then rounded to whole pixels so they are crisp.
+    #[must_use]
+    pub fn background(bounds: Rect, font_size: f32) -> Rect {
+        let padded = bounds.expand(Self::BACKGROUND_PADDING * font_size.max(0.0));
+        padded.pixels().map_or(padded, Rect::from_pixels)
+    }
+
+    /// What the text covers drawn in `style`: its [background](Self::background)
+    /// if that shows (is not fully transparent), otherwise its layout box.
+    #[must_use]
+    pub fn covered(&self, style: &Style) -> Rect {
+        let bounds = self.bounds(style.font_size);
+        if style.text_background.a == 0 {
+            bounds
+        } else {
+            Self::background(bounds, style.font_size)
+        }
     }
 
     /// A font-free size estimate: the longest line's character count ×
@@ -751,6 +781,7 @@ mod tests {
         let text = Text::new(Point::new(10.0, 20.0), "hello");
         let style = Style {
             font_size: 10.0,
+            text_background: Rgba8::TRANSPARENT,
             ..Style::default()
         };
         // Estimated box: (10, 20) to (40, 32).
@@ -760,6 +791,18 @@ mod tests {
         assert!(!shape.hit(&style, Point::new(40.5, 32.0), 0.0));
         assert!(shape.hit(&style, Point::new(42.0, 32.0), 2.0));
         assert!(!shape.hit(&style, Point::new(10.0, 17.9), 2.0));
+
+        // A background that shows is part of the text: the box grown by 2.
+        let backed = Style {
+            text_background: Style::DEFAULT_TEXT_BACKGROUND,
+            ..style
+        };
+        assert!(shape.hit(&backed, Point::new(42.0, 34.0), 0.0));
+        assert!(!shape.hit(&backed, Point::new(42.5, 34.0), 0.0));
+        assert_eq!(
+            shape.bounds(&backed),
+            Rect::from_corners(Point::new(8.0, 18.0), Point::new(42.0, 34.0))
+        );
 
         // A measured size replaces the estimate.
         let mut measured = text;

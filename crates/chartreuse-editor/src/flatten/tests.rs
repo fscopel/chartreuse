@@ -334,6 +334,7 @@ fn text_is_drawn_in_its_color_only_around_its_layout_box() {
     let style = Style {
         color: BLUE,
         font_size: 36.0,
+        text_background: Rgba8::TRANSPARENT,
         ..Style::default()
     };
     let position = Point::new(10.25, 6.5);
@@ -358,6 +359,24 @@ fn text_is_drawn_in_its_color_only_around_its_layout_box() {
     }
     // The bold stems of "HIT" and "ll" fully cover many pixels.
     assert!(solid > 150, "{solid} pixels in the text color");
+}
+
+#[test]
+fn text_is_drawn_on_its_background() {
+    let image = Image::filled(PhysicalSize::new(80, 40), Rgba8::BLACK);
+    let style = Style {
+        color: BLUE,
+        font_size: 20.0,
+        ..Style::default()
+    };
+    let text = Text::new(Point::new(10.0, 10.0), "x");
+    let background = Text::background(text.bounds(style.font_size), style.font_size);
+    assert_eq!(background.min(), Point::new(6.0, 6.0), "padded by 0.2 em");
+    let result = flattened(image, [(Shape::Text(text), style)]);
+    // White at 70% over black, in the padding outside the layout box.
+    assert_eq!(result.pixel(7, 8), Some(Rgba8::rgb(179, 179, 179)));
+    assert_eq!(result.pixel(5, 8), Some(Rgba8::BLACK), "outside it");
+    assert_eq!(result.pixel(7, 5), Some(Rgba8::BLACK), "above it");
 }
 
 /// Asserts that no channel of `a` differs from `b`'s by more than one.

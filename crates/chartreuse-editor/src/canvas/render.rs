@@ -144,12 +144,15 @@ pub fn shape(
             }
         }
         Shape::Blur(_) => {}
-        Shape::Text(text) => frame.fill_text(canvas_text(
-            &text.content,
-            viewport.to_canvas(text.position),
-            style,
-            viewport.scale(),
-        )),
+        Shape::Text(text) => {
+            text_background(frame, viewport, text.bounds(style.font_size), style);
+            frame.fill_text(canvas_text(
+                &text.content,
+                viewport.to_canvas(text.position),
+                style,
+                viewport.scale(),
+            ));
+        }
     }
 }
 
@@ -172,6 +175,16 @@ pub fn obscured(frame: &mut Frame, viewport: &Viewport, obscured: &Obscured, bac
             })
             .snap(true),
     );
+}
+
+/// The background of text whose layout box is `bounds`, in `style` (see
+/// [`Text::background`]); nothing if it is fully transparent.
+pub fn text_background(frame: &mut Frame, viewport: &Viewport, bounds: Rect, style: &Style) {
+    if style.text_background.a == 0 {
+        return;
+    }
+    let rect = viewport.to_canvas_rect(Text::background(bounds, style.font_size));
+    frame.fill_rectangle(rect.position(), rect.size(), color(style.text_background));
 }
 
 /// Annotation text as canvas text at canvas position `position`, `scale`
