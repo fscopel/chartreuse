@@ -1,6 +1,6 @@
-//! The editor's toolbar: tools, crop controls, the style controls (color,
-//! stroke width, font size, and how blur regions obscure), undo and redo, and
-//! zoom.
+//! The editor's toolbar: tools, crop and resize controls, the style controls
+//! (color, stroke width, font size, and how blur regions obscure), undo and
+//! redo, and zoom.
 //!
 //! # Style controls
 //!
@@ -8,9 +8,9 @@
 //! the kind draws with it; see [`Shape::style_fields`]) and set the style for
 //! new ones. A control shows only if it applies to something in play: the
 //! selected annotations, or the ones the active tool makes (with the select
-//! tool and nothing selected, all of them; with the crop tool, none). It shows
-//! the value the selected annotations it applies to share (nothing, if they
-//! differ), or else the style for new annotations.
+//! tool and nothing selected, all of them; with the crop or resize tool,
+//! none). It shows the value the selected annotations it applies to share
+//! (nothing, if they differ), or else the style for new annotations.
 //!
 //! [`Shape::style_fields`]: crate::model::Shape::style_fields
 //!
@@ -20,13 +20,13 @@
 use std::fmt;
 
 use chartreuse_core::color::Rgba8;
-use iced::widget::{button, pick_list, row, space, text, tooltip, Row};
+use iced::widget::{button, checkbox, pick_list, row, space, text, text_input, tooltip, Row};
 use iced::{Alignment, Background, Border, Element, Theme};
 
 use crate::canvas;
 use crate::editor::{Message, ZoomChange};
-use crate::model::{Annotation, BlurMode, Style, StyleFields};
-use crate::tools::{Preview, ToolKind};
+use crate::model::{Annotation, BlurMode, Document, Style, StyleFields};
+use crate::tools::{Preview, ResizeInput, ResizeTool, ResizeUnit, ToolKind};
 use crate::Editor;
 
 /// The color swatches, in order.
@@ -50,6 +50,9 @@ pub const FONT_SIZES: [f32; 9] = [12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0
 const SWATCH: f32 = 18.0;
 const GROUP_SPACING: f32 = 16.0;
 const ITEM_SPACING: f32 = 4.0;
+
+/// The width of the resize tool's fields.
+const RESIZE_FIELD: f32 = 72.0;
 
 /// A size in image pixels, as a pick-list entry.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -98,7 +101,7 @@ impl Panel {
     fn of(editor: &Editor) -> Self {
         let tool = editor.tool();
         let selected: Vec<_> = match tool {
-            ToolKind::Crop => Vec::new(),
+            ToolKind::Crop | ToolKind::Resize => Vec::new(),
             _ => editor.document().selected().collect(),
         };
         let made = match tool {
@@ -187,6 +190,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         );
     }
     let crop = (!crop.is_empty()).then(|| group(crop));
+    let resize = editor.active_tool().as_resize().map(resize_controls);
 
     let colors = shown(panel.color).map(|chosen| {
         group(
@@ -262,6 +266,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
 
     row![tools]
         .push(crop)
+        .push(resize)
         .push(colors)
         .push(sizes)
         .push(blur)
@@ -273,6 +278,54 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         .wrap()
         .vertical_spacing(8)
         .into()
+}
+
+/// The resize tool's controls: the width and height fields, their unit, Keep
+/// proportions, Apply, and the size the fields give.
+fn resize_controls(tool: &ResizeTool) -> Row<'_, Message> {
+    let field = |value: &str, input: fn(String) -> ResizeInput| {
+        text_input("", value)
+            .on_input(move |text| Message::Resize(input(text)))
+            .on_submit(Message::Resize(ResizeInput::Apply))
+            .width(RESIZE_FIELD)
+            .into()
+    };
+    let units = ResizeUnit::ALL.into_iter().map(|unit| {
+        button(text(unit.label()))
+            .on_press(Message::Resize(ResizeInput::Unit(unit)))
+            .style(if unit == tool.unit() {
+                button::primary
+            } else {
+                button::secondary
+            })
+            .into()
+    });
+    let target = tool.target();
+    let outcome = match target {
+        Some(size) => format!("→ {} × {} px", size.width, size.height),
+        None => format!("Sizes are 1 to {} px", Document::MAX_SIDE),
+    };
+    group(
+        [
+            text("Width").into(),
+            field(tool.width(), ResizeInput::Width),
+            text("Height").into(),
+            field(tool.height(), ResizeInput::Height),
+        ]
+        .into_iter()
+        .chain(units)
+        .chain([
+            checkbox(tool.proportional())
+                .label("Keep proportions")
+                .on_toggle(|on| Message::Resize(ResizeInput::Proportional(on)))
+                .into(),
+            button(text("Apply"))
+                .on_press_maybe(target.map(|_| Message::Resize(ResizeInput::Apply)))
+                .style(button::primary)
+                .into(),
+            text(outcome).into(),
+        ]),
+    )
 }
 
 /// A shown control's value; `None` if it is hidden.

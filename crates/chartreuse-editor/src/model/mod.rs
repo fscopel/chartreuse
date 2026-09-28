@@ -26,7 +26,9 @@
 //! - Edits go through [`Document::add`] and [`Document::apply`] with a
 //!   [`Command`]; each is one undo step, and no-ops are not recorded.
 //! - [`Document::crop`] is the document's non-destructive crop, set (and
-//!   undone) like any edit, with [`Command::SetCrop`].
+//!   undone) like any edit, with [`Command::SetCrop`]. [`Document::resize`]
+//!   resizes it for real: it resamples the base image and scales the
+//!   annotations and the crop with it, as one undo step.
 //! - [`Document::annotation_at`] finds the topmost annotation under a point
 //!   within the cropped bounds; [`Shape::hit`] documents the hit area of
 //!   each kind.

@@ -16,8 +16,8 @@
 //! - [`Tool::escape`] abandons the gesture (the Escape key),
 //!   [`Tool::confirm`] completes it (the Enter key), and [`Tool::finish`]
 //!   completes it early (switching tools).
-//! - A tool with a job to finish (the crop tool) reports when it is
-//!   [done](Tool::is_done), and the editor returns to the select tool.
+//! - A tool with a job to finish (the crop and resize tools) reports when it
+//!   is [done](Tool::is_done), and the editor returns to the select tool.
 //!
 //! Tools are pure logic over the model: they never touch the renderer, so they
 //! are tested by feeding them events.
@@ -41,6 +41,7 @@ mod highlighter;
 mod line;
 mod pen;
 mod rectangle;
+mod resize;
 mod select;
 mod step;
 mod text;
@@ -62,6 +63,7 @@ pub use highlighter::HighlighterTool;
 pub use line::LineTool;
 pub use pen::PenTool;
 pub use rectangle::RectangleTool;
+pub use resize::{ResizeInput, ResizeTool, ResizeUnit};
 pub use select::SelectTool;
 pub use step::StepTool;
 pub use text::{TextEdit, TextInput, TextTarget, TextTool};
@@ -89,11 +91,12 @@ pub enum ToolKind {
     Step,
     Blur,
     Crop,
+    Resize,
 }
 
 impl ToolKind {
     /// Every kind, in toolbar order.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Select,
         Self::Line,
         Self::Arrow,
@@ -105,6 +108,7 @@ impl ToolKind {
         Self::Step,
         Self::Blur,
         Self::Crop,
+        Self::Resize,
     ];
 
     /// The name shown in the toolbar.
@@ -122,6 +126,7 @@ impl ToolKind {
             Self::Step => "Step",
             Self::Blur => "Blur",
             Self::Crop => "Crop",
+            Self::Resize => "Resize",
         }
     }
 
@@ -140,18 +145,19 @@ impl ToolKind {
             Self::Step => 'n',
             Self::Blur => 'b',
             Self::Crop => 'c',
+            Self::Resize => 's',
         }
     }
 
     /// The style fields of the annotations this tool makes (see
-    /// [`Shape::style_fields`]): none for the crop tool, and all for the
-    /// select tool, whose style controls set the style for new annotations
-    /// in general.
+    /// [`Shape::style_fields`]): none for the crop and resize tools, and all
+    /// for the select tool, whose style controls set the style for new
+    /// annotations in general.
     #[must_use]
     pub const fn style_fields(self) -> StyleFields {
         match self {
             Self::Select => StyleFields::ALL,
-            Self::Crop => StyleFields::NONE,
+            Self::Crop | Self::Resize => StyleFields::NONE,
             Self::Line
             | Self::Arrow
             | Self::Rectangle
@@ -190,6 +196,7 @@ impl ToolKind {
             Self::Step => Box::<StepTool>::default(),
             Self::Blur => Box::<BlurTool>::default(),
             Self::Crop => Box::new(CropTool::new(document)),
+            Self::Resize => Box::new(ResizeTool::new(document)),
         }
     }
 }
@@ -282,8 +289,9 @@ pub trait Tool: fmt::Debug {
     /// Whether a gesture or text edit is in progress.
     fn is_active(&self) -> bool;
 
-    /// Whether the tool has finished its job (applied or cancelled a crop),
-    /// so the editor should return to the select tool. Never, by default.
+    /// Whether the tool has finished its job (applied or cancelled a crop or
+    /// resize), so the editor should return to the select tool. Never, by
+    /// default.
     fn is_done(&self) -> bool {
         false
     }
@@ -296,6 +304,15 @@ pub trait Tool: fmt::Debug {
     fn text_edit(&mut self) -> Option<&mut TextEdit> {
         None
     }
+
+    /// The resize tool, if this is it, for the toolbar to show its controls.
+    fn as_resize(&self) -> Option<&ResizeTool> {
+        None
+    }
+
+    /// Handles input from the resize tool's toolbar controls. Does nothing
+    /// by default.
+    fn resize_input(&mut self, _input: ResizeInput, _cx: &mut Context<'_>) {}
 
     /// The mouse cursor over document point `at`.
     fn cursor(&self, document: &Document, at: Point, pixel: f32) -> Interaction;

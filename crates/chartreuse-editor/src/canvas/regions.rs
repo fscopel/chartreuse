@@ -35,7 +35,7 @@ struct Entry {
 }
 
 /// Everything a region's pixels are computed from besides the base image,
-/// which never changes in an editor.
+/// whose replacement (a resize) makes the editor start a new cache.
 #[derive(Debug, PartialEq)]
 struct Key {
     region: BlurRegion,

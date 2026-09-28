@@ -41,6 +41,12 @@ impl Point {
     pub fn is_finite(self) -> bool {
         self.x.is_finite() && self.y.is_finite()
     }
+
+    /// Scaled about the origin by `x` horizontally and `y` vertically.
+    #[must_use]
+    pub fn scaled(self, x: f32, y: f32) -> Self {
+        Self::new(self.x * x, self.y * y)
+    }
 }
 
 /// A displacement in document coordinates.
@@ -305,6 +311,13 @@ impl Rect {
             .into_iter()
             .map(|(start, end)| distance_to_segment(point, start, end))
             .fold(f32::INFINITY, f32::min)
+    }
+
+    /// Scaled about the origin by `x` horizontally and `y` vertically (both
+    /// positive).
+    #[must_use]
+    pub fn scaled(&self, x: f32, y: f32) -> Self {
+        Self::from_corners(self.min.scaled(x, y), self.max.scaled(x, y))
     }
 }
 

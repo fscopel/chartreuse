@@ -1,6 +1,7 @@
 //! The document: base image, annotations in z-order, and the selection.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use chartreuse_core::geometry::{PhysicalRect, PhysicalSize};
 use chartreuse_core::image::Image;
@@ -13,8 +14,10 @@ use super::style::Style;
 /// An image being annotated.
 ///
 /// Annotations are kept in z-order: index 0 is drawn first (bottom), the last
-/// is drawn on top. The base image is never modified; annotations are
-/// flattened onto a copy only at export.
+/// is drawn on top. Annotations are flattened onto a copy of the base image
+/// only at export. The base image changes only when the document is
+/// [resized](Self::resize), and is then resampled from the image the
+/// document was opened with, so resizing again loses nothing more.
 ///
 /// The selection is a set of ids of annotations in the document; ids that stop
 /// existing are dropped from it.
@@ -34,7 +37,8 @@ use super::style::Style;
 /// delete) leaves nothing selected.
 #[derive(Debug, Clone)]
 pub struct Document {
-    base: Image,
+    /// The image the document was opened with, which resizes resample.
+    original: Arc<Image>,
     state: State,
     selection: BTreeSet<AnnotationId>,
     next_id: u64,
@@ -45,26 +49,42 @@ impl Document {
     /// A document with no annotations over `base`.
     #[must_use]
     pub fn new(base: Image) -> Self {
+        let base = Arc::new(base);
         Self {
-            base,
-            state: State::default(),
+            original: Arc::clone(&base),
+            state: State {
+                base,
+                annotations: Vec::new(),
+                crop: None,
+            },
             selection: BTreeSet::new(),
             next_id: 0,
             history: History::default(),
         }
     }
 
-    /// The image being annotated.
+    /// The largest width or height [`resize`](Self::resize) makes the base
+    /// image, in pixels.
+    pub const MAX_SIDE: u32 = 16_384;
+
+    /// The image being annotated, as resized.
     #[must_use]
-    pub const fn base(&self) -> &Image {
-        &self.base
+    pub fn base(&self) -> &Image {
+        &self.state.base
+    }
+
+    /// [`base`](Self::base), shared: it is a new one (not
+    /// [`Arc::ptr_eq`]) after every resize, or undo or redo of one.
+    #[must_use]
+    pub fn shared_base(&self) -> &Arc<Image> {
+        &self.state.base
     }
 
     /// The base image's extent in document coordinates: `(0, 0)` to
     /// `(width, height)`.
     #[must_use]
     pub fn bounds(&self) -> Rect {
-        let size = Size::new(self.base.width() as f32, self.base.height() as f32);
+        let size = Size::new(self.base().width() as f32, self.base().height() as f32);
         Rect::new(Point::ORIGIN, size)
     }
 
@@ -94,15 +114,76 @@ impl Document {
     /// image.
     #[must_use]
     pub fn crop_pixels(&self) -> Option<PhysicalRect> {
-        let image = PhysicalRect::new(0, 0, self.base.width(), self.base.height());
+        let image = PhysicalRect::new(0, 0, self.base().width(), self.base().height());
         self.crop()?.pixels()?.intersection(&image)
     }
 
-    /// The size, in pixels, of the image an export produces.
+    /// The size, in pixels, of the image an export produces: the
+    /// [crop's](Self::crop_pixels), or the whole base image's.
     #[must_use]
     pub fn export_size(&self) -> PhysicalSize {
         self.crop_pixels()
-            .map_or(self.base.size(), |pixels| pixels.size)
+            .map_or(self.base().size(), |pixels| pixels.size)
+    }
+
+    /// Resizes the document so that an export is `size` pixels, as one undo
+    /// step. Returns false, changing nothing, if that is the size already,
+    /// `size` or the image is empty, or the base image would be wider or
+    /// taller than [`MAX_SIDE`](Self::MAX_SIDE).
+    ///
+    /// Everything scales by the export's factor on each axis: the base image
+    /// is resampled ([`chartreuse_imaging::resize`], from the image the
+    /// document was opened with), the annotations' geometry scales
+    /// ([`Shape::scale`]), stroke widths and font sizes scale by the mean of
+    /// the two factors (so a disproportionate resize moves and stretches
+    /// shapes but keeps their strokes and text even), and the crop scales
+    /// too, staying on whole pixels, exactly `size`. The selection is
+    /// unchanged.
+    pub fn resize(&mut self, size: PhysicalSize) -> bool {
+        let current = self.export_size();
+        if size == current || size.is_empty() || current.is_empty() {
+            return false;
+        }
+        let x = size.width as f32 / current.width as f32;
+        let y = size.height as f32 / current.height as f32;
+        let side = |pixels: u32, factor: f32| ((pixels as f32 * factor).round() as u32).max(1);
+        let mut base =
+            PhysicalSize::new(side(self.base().width(), x), side(self.base().height(), y));
+        let crop = self.crop_pixels().map(|crop| {
+            // Whole pixels, and exactly `size`: the base grows to hold it if
+            // rounding left it a pixel short.
+            let origin = crop.origin;
+            let (left, top) = (
+                (origin.x as f32 * x).round() as i32,
+                (origin.y as f32 * y).round() as i32,
+            );
+            let crop = PhysicalRect::new(left, top, size.width, size.height);
+            base.width = base.width.max(crop.max_x() as u32);
+            base.height = base.height.max(crop.max_y() as u32);
+            Rect::from_pixels(crop)
+        });
+        if base.width > Self::MAX_SIDE || base.height > Self::MAX_SIDE {
+            return false;
+        }
+        let Ok(image) = chartreuse_imaging::resize(&self.original, base) else {
+            return false;
+        };
+        let length = (x * y).sqrt();
+        let mut after = State {
+            base: Arc::new(image),
+            annotations: self.state.annotations.clone(),
+            crop,
+        };
+        for annotation in &mut after.annotations {
+            annotation.shape.scale(x, y);
+            annotation.style.stroke_width *= length;
+            annotation.style.font_size *= length;
+        }
+        self.commit(Edit::Replace {
+            before: Box::new(self.state.clone()),
+            after: Box::new(after),
+        });
+        true
     }
 
     /// Every annotation, bottom to top.
@@ -343,6 +424,54 @@ mod tests {
             doc.bounds(),
             Rect::from_corners(Point::ORIGIN, Point::new(200.0, 100.0))
         );
+    }
+
+    #[test]
+    fn resizing_resamples_the_image_and_scales_everything_on_it() {
+        let original = Image::from_fn(PhysicalSize::new(200, 100), |x, y| {
+            Rgba8::rgb(x as u8, y as u8, 0)
+        });
+        let mut doc = Document::new(original.clone());
+        let a = doc.add(line(20.0, 10.0, 100.0, 50.0), Style::default());
+        let ends = |doc: &Document| match &doc.get(a).unwrap().shape {
+            Shape::Line(line) => (line.start, line.end),
+            other => panic!("not a line: {other:?}"),
+        };
+
+        // Uncropped, the base becomes exactly the size.
+        assert!(doc.resize(PhysicalSize::new(100, 25)));
+        let small = chartreuse_imaging::resize(&original, PhysicalSize::new(100, 25)).unwrap();
+        assert!(doc.base() == &small);
+        assert_eq!(ends(&doc), (Point::new(10.0, 2.5), Point::new(50.0, 12.5)));
+        let width = doc.get(a).unwrap().style.stroke_width;
+        assert_eq!(
+            width,
+            Style::default().stroke_width * (0.5_f32 * 0.25).sqrt()
+        );
+
+        // Resizing again resamples the original, not the smaller image.
+        assert!(doc.resize(PhysicalSize::new(200, 100)));
+        assert!(doc.base() == &original);
+        assert_eq!(
+            ends(&doc),
+            (Point::new(20.0, 10.0), Point::new(100.0, 50.0))
+        );
+
+        // Cropped, the crop scales too, and the export is exactly the size.
+        let crop = Rect::from_corners(Point::new(33.0, 7.0), Point::new(134.0, 90.0));
+        doc.apply(Command::SetCrop(Some(crop)));
+        assert!(doc.resize(PhysicalSize::new(67, 41)));
+        assert_eq!(doc.export_size(), PhysicalSize::new(67, 41));
+
+        // One undo step.
+        assert!(doc.undo());
+        assert_eq!(doc.export_size(), PhysicalSize::new(101, 83));
+        assert!(doc.base() == &original);
+
+        // Nothing to do, or a base too big: no resize.
+        assert!(!doc.resize(PhysicalSize::new(101, 83)));
+        assert!(!doc.resize(PhysicalSize::new(Document::MAX_SIDE, 83)));
+        assert_eq!(doc.export_size(), PhysicalSize::new(101, 83));
     }
 
     #[test]

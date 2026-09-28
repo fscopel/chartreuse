@@ -1,6 +1,8 @@
 //! The editor widget: one image being annotated, with its tools, style, zoom,
 //! and pan.
 
+use std::sync::Arc;
+
 use chartreuse_core::color::Rgba8;
 use chartreuse_core::image::Image;
 use iced::widget::{column, image};
@@ -10,7 +12,7 @@ use crate::canvas::{self, Input, InputKind, View, Viewport, Zoom, ZOOM_STEP};
 use crate::font;
 use crate::model::{BlurMode, Command, Document, Rect, Shape, Style, StylePatch};
 use crate::toolbar::toolbar;
-use crate::tools::{Context, Pointer, TextInput, Tool, ToolKind};
+use crate::tools::{Context, Pointer, ResizeInput, TextInput, Tool, ToolKind};
 
 /// Canvas pixels of Cmd-scrolling that double (or halve) the zoom.
 const SCROLL_PER_DOUBLING: f32 = 200.0;
@@ -36,6 +38,8 @@ pub enum Message {
     BlurMode(BlurMode),
     /// Uncrops the document (one undo step), dropping any crop being edited.
     ClearCrop,
+    /// Input from the resize tool's toolbar controls.
+    Resize(ResizeInput),
     Undo,
     Redo,
     /// Deletes the selected annotations.
@@ -80,8 +84,11 @@ pub enum Event {
 #[derive(Debug)]
 pub struct Editor {
     document: Document,
-    /// The base image for the renderer, uploaded once.
+    /// The base image for the renderer, uploaded once per base image.
     image: image::Handle,
+    /// The base image `image` shows, to tell when a resize (or its undo)
+    /// replaces it.
+    image_of: Arc<Image>,
     tool: Box<dyn Tool>,
     style: Style,
     view: View,
@@ -103,14 +110,14 @@ impl Editor {
     #[must_use]
     pub fn new(image: Image) -> Self {
         font::load();
-        let handle =
-            image::Handle::from_rgba(image.width(), image.height(), image.pixels().to_vec());
         let canvas = iced::Size::new(image.width() as f32, image.height() as f32);
         let document = Document::new(image);
+        let image_of = Arc::clone(document.shared_base());
         Self {
             tool: ToolKind::Select.create(&document),
             document,
-            image: handle,
+            image: handle(&image_of),
+            image_of,
             style: Style::default(),
             view: View::default(),
             canvas,
@@ -185,6 +192,10 @@ impl Editor {
                 self.clear_crop();
                 None
             }
+            Message::Resize(input) => {
+                self.with_tool(|tool, cx| tool.resize_input(input, cx));
+                None
+            }
             Message::Undo => {
                 self.undo();
                 None
@@ -209,6 +220,7 @@ impl Editor {
             }
         };
         self.measure_text();
+        self.sync_image();
         event
     }
 
@@ -370,8 +382,11 @@ impl Editor {
     /// - While a text edit is open, other keys type (see [`Self::type_key`]).
     /// - Otherwise Delete or Backspace deletes the selection, Escape abandons
     ///   the gesture in progress or, if there is none, clears the selection,
-    ///   Enter [confirms](Tool::confirm) the tool's job (applies a crop), and
-    ///   a tool's [hotkey](ToolKind::hotkey) switches to it.
+    ///   Enter [confirms](Tool::confirm) the tool's job (applies a crop or a
+    ///   resize), and a tool's [hotkey](ToolKind::hotkey) switches to it.
+    ///
+    /// Keys typed into a focused toolbar field (the resize tool's) reach
+    /// the field only: the canvas never sees them.
     fn key(
         &mut self,
         key: &keyboard::Key,
@@ -457,6 +472,18 @@ impl Editor {
         self.document.apply(Command::Delete { ids });
     }
 
+    /// Uploads the base image afresh if a resize (or an undo or redo of
+    /// one) replaced it, and forgets the blur region pixels computed from
+    /// the old one.
+    fn sync_image(&mut self) {
+        let base = self.document.shared_base();
+        if !Arc::ptr_eq(base, &self.image_of) {
+            self.image_of = Arc::clone(base);
+            self.image = handle(&self.image_of);
+            self.rasters = canvas::Rasters::default();
+        }
+    }
+
     /// Reports the laid-out size of every text annotation that has none (new,
     /// edited, restyled, or restored by undo) to the model, so hit-testing and
     /// bounds use the real layout.
@@ -506,6 +533,11 @@ impl Editor {
         }
         result
     }
+}
+
+/// `image` for the renderer.
+fn handle(image: &Image) -> image::Handle {
+    image::Handle::from_rgba(image.width(), image.height(), image.pixels().to_vec())
 }
 
 #[cfg(test)]

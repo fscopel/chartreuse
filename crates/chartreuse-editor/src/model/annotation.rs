@@ -221,6 +221,36 @@ impl Shape {
             Self::Text(text) => text.position += delta,
         }
     }
+
+    /// Scales the shape's geometry about the origin by `x` horizontally and
+    /// `y` vertically (both positive), as when the image beneath it is
+    /// resized. Only positions scale: stroke widths and font sizes are the
+    /// style's, and text's measured size is cleared, as its layout changes.
+    pub fn scale(&mut self, x: f32, y: f32) {
+        match self {
+            Self::Line(line) => {
+                line.start = line.start.scaled(x, y);
+                line.end = line.end.scaled(x, y);
+            }
+            Self::Arrow(arrow) => {
+                arrow.start = arrow.start.scaled(x, y);
+                arrow.end = arrow.end.scaled(x, y);
+            }
+            Self::Rectangle(rectangle) => rectangle.rect = rectangle.rect.scaled(x, y),
+            Self::Ellipse(ellipse) => ellipse.rect = ellipse.rect.scaled(x, y),
+            Self::Pen(stroke) | Self::Highlighter(stroke) => {
+                for point in &mut stroke.points {
+                    *point = point.scaled(x, y);
+                }
+            }
+            Self::Step(step) => step.center = step.center.scaled(x, y),
+            Self::Blur(region) => region.rect = region.rect.scaled(x, y),
+            Self::Text(text) => {
+                text.position = text.position.scaled(x, y);
+                text.set_measured(None);
+            }
+        }
+    }
 }
 
 fn half_stroke(style: &Style) -> f32 {

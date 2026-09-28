@@ -110,6 +110,7 @@
 //! [`BlurRegion::pixels`]: crate::model::BlurRegion::pixels
 //! [`BlurMode`]: crate::model::BlurMode
 
+mod captured;
 mod regions;
 mod render;
 mod viewport;
@@ -174,7 +175,9 @@ pub enum InputKind {
     Modifiers(keyboard::Modifiers),
 }
 
-/// The canvas: its layers stacked bottom to top, clipped to its bounds.
+/// The canvas: its layers stacked bottom to top, clipped to its bounds. It
+/// hears no key presses a focused toolbar field has taken (see
+/// `captured::skip_captured_keys`).
 pub(crate) fn view(editor: &Editor) -> Element<'_, Message> {
     let layer = |layer| {
         Canvas::new(Scene { editor, layer })
@@ -190,17 +193,18 @@ pub(crate) fn view(editor: &Editor) -> Element<'_, Message> {
     // the overlay stays at the same index however many runs there are: iced
     // matches widget state to children by index, and the overlay's state is
     // its pointer tracking.
-    stack![
-        space().width(Length::Fill).height(Length::Fill),
-        layer(Layer::Base),
-        stack(annotations).width(Length::Fill).height(Length::Fill),
-        layer(Layer::Preview),
-        layer(Layer::Overlay),
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .clip(true)
-    .into()
+    captured::skip_captured_keys(
+        stack![
+            space().width(Length::Fill).height(Length::Fill),
+            layer(Layer::Base),
+            stack(annotations).width(Length::Fill).height(Length::Fill),
+            layer(Layer::Preview),
+            layer(Layer::Overlay),
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .clip(true),
+    )
 }
 
 /// Splits annotations (bottom to top) into consecutive runs that one layer

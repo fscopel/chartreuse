@@ -9,16 +9,24 @@
 //! # Extending
 //!
 //! Edits are planned against and applied to a [`State`], which holds
-//! everything undoable: the annotations and the document-level crop. A new
+//! everything undoable: the base image, the annotations, and the
+//! document-level crop. A new
 //! document-level setting is a [`State`] field, a [`Command`] that sets it,
 //! and an [`Edit`] holding its value before and after, as the crop's
 //! `SetCrop` does: `apply` sets the field and returns no ids (it touches no
 //! annotations, so undoing or redoing it leaves nothing selected),
 //! `inverted` swaps before and after, and `is_empty` compares them.
 //!
+//! An edit that changes everything at once (a resize: the base image, every
+//! annotation, and the crop) records the whole state before and after, as
+//! `Replace`; the base image is shared, not copied, between them.
+//!
 //! New annotation kinds need nothing here.
 
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
+
+use chartreuse_core::image::Image;
 
 use super::annotation::{Annotation, AnnotationId, Shape};
 use super::geometry::{Rect, Vector};
@@ -84,8 +92,10 @@ pub enum Reorder {
 }
 
 /// The part of a document that edits change and undo restores.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct State {
+    /// The image being annotated, as it is now (resized, maybe).
+    pub(super) base: Arc<Image>,
     /// Bottom to top.
     pub(super) annotations: Vec<Annotation>,
     /// `None`: uncropped.
@@ -129,6 +139,11 @@ pub(super) enum Edit {
     SetCrop {
         before: Option<Rect>,
         after: Option<Rect>,
+    },
+    /// Replaces the whole state (a resize).
+    Replace {
+        before: Box<State>,
+        after: Box<State>,
     },
 }
 
@@ -217,6 +232,8 @@ impl Edit {
             Self::Modify(changes) => changes.is_empty(),
             Self::Reorder { before, after, .. } => before == after,
             Self::SetCrop { before, after } => before == after,
+            // Only a resize, which always changes the size, makes one.
+            Self::Replace { .. } => false,
         }
     }
 
@@ -245,6 +262,10 @@ impl Edit {
                 moved,
             },
             Self::SetCrop { before, after } => Self::SetCrop {
+                before: after,
+                after: before,
+            },
+            Self::Replace { before, after } => Self::Replace {
                 before: after,
                 after: before,
             },
@@ -288,6 +309,10 @@ impl Edit {
             }
             Self::SetCrop { after, .. } => {
                 state.crop = *after;
+                Vec::new()
+            }
+            Self::Replace { after, .. } => {
+                *state = State::clone(after);
                 Vec::new()
             }
         }
@@ -371,8 +396,8 @@ fn reordered(
     result
 }
 
-/// Undo and redo stacks. Unbounded: edits are small (annotation snapshots, not
-/// pixels).
+/// Undo and redo stacks. Unbounded: edits are small (annotation snapshots,
+/// not pixels; a resize's images are shared with the document).
 #[derive(Debug, Clone, Default)]
 pub(super) struct History {
     undo: Vec<Edit>,

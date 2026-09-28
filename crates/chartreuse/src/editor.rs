@@ -17,7 +17,7 @@
 //!
 //! The bar along the bottom of the window shows the size, in pixels, of the
 //! image an export produces ([`Document::export_size`]: the crop's, if the
-//! image is cropped), and the buttons that export it:
+//! image is cropped). Then come the buttons that export it:
 //!
 //! | Button          | Shortcut  | Does                                          |
 //! |-----------------|-----------|-----------------------------------------------|

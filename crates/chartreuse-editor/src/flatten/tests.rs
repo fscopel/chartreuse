@@ -587,7 +587,7 @@ mod canvas {
     use super::*;
     use crate::canvas::InputKind;
     use crate::editor::testing::{self, at, click, drag, input, named, press, type_text};
-    use crate::tools::ToolKind;
+    use crate::tools::{ResizeInput, ToolKind};
     use crate::{Editor, Message};
 
     /// The canvas at [`testing::CANVAS`], and where in it the editor's area
@@ -903,6 +903,43 @@ mod canvas {
         }
         let canvas = chartreuse_imaging::crop(&screenshot, area).unwrap();
         let (worst, differ) = compare(&flat, &canvas, flat.width());
+        assert!(
+            worst <= 16 && differ <= 8,
+            "worst channel difference {worst}, {differ} pixels differ by more than 2"
+        );
+    }
+
+    #[test]
+    fn a_resized_image_shows_on_the_canvas_at_its_new_size() {
+        // As above, the base varies only down the image.
+        let mut editor = Editor::new(Image::from_fn(PhysicalSize::new(400, 300), |_, y| {
+            Rgba8::rgb((y * 5 % 256) as u8, 120, (255 - y * 3 / 4) as u8)
+        }));
+        draw(
+            &mut editor,
+            ToolKind::Line,
+            Rgba8::rgb(255, 214, 10),
+            8.0,
+            at(10.0, 60.0),
+            at(390.0, 200.0),
+        );
+
+        // Disproportionately, to 300 × 150: the fitted view shows it 1:1.
+        editor.update(Message::Tool(ToolKind::Resize));
+        for input in [
+            ResizeInput::Proportional(false),
+            ResizeInput::Width("300".into()),
+            ResizeInput::Height("150".into()),
+            ResizeInput::Apply,
+        ] {
+            editor.update(Message::Resize(input));
+        }
+
+        let flat = flatten(editor.document()).unwrap();
+        assert_eq!((flat.width(), flat.height()), (300, 150));
+        let canvas = canvas_image(&editor);
+        assert_eq!(canvas.size(), flat.size(), "the canvas shows the new size");
+        let (worst, differ) = compare(&flat, &canvas, flat.width() - 1);
         assert!(
             worst <= 16 && differ <= 8,
             "worst channel difference {worst}, {differ} pixels differ by more than 2"
