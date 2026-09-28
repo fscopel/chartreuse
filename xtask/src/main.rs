@@ -11,12 +11,14 @@ mod dmg;
 mod icon;
 mod info_plist;
 mod launch;
+mod linux_release;
 mod macos_release;
 mod notary;
 mod release;
 mod sign;
 mod upload_release;
 mod util;
+mod windows_release;
 
 use std::process::ExitCode;
 

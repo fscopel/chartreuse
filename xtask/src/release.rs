@@ -4,10 +4,11 @@
 //! - macOS ([`crate::macos_release`]): a universal, release-flavor
 //!   `Chartreuse.app` signed with the Developer ID identity and notarized, in
 //!   a signed, notarized disk image (both stapled).
-//! - Windows and Linux: the optimized, release-flavor executable with the
-//!   license and the readme, in a `.zip` (Windows) or `.tar.gz` (Linux)
-//!   holding one top-level directory. The Windows executable carries the app
-//!   icon as a resource; the Linux archive adds an
+//! - Windows ([`crate::windows_release`]) and Linux
+//!   ([`crate::linux_release`]): the optimized, release-flavor executable
+//!   with the license and the readme, in a `.zip` (Windows) or `.tar.gz`
+//!   (Linux) holding one top-level directory. The Windows executable carries
+//!   the app icon as a resource; the Linux archive adds an
 //!   `icons/hicolor/<size>x<size>/apps/<app ID>.png` tree. Tracks 5B and 5C
 //!   add an installer and packages, which install it.
 //!
@@ -22,7 +23,7 @@ use chartreuse_core::flavor::Flavor;
 
 use crate::bundle::{self, Profile};
 use crate::util::{run, target_dir, tool, workspace_root, Context, Error, Result};
-use crate::{icon, macos_release};
+use crate::{linux_release, macos_release, windows_release};
 
 /// The workspace version, which releases are built as and named after.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -68,54 +69,53 @@ pub fn release(allow_ad_hoc: bool) -> Result {
     }
     std::fs::create_dir_all(&dist).context(|| format!("creating {}", dist.display()))?;
 
-    let archive = if os == "macos" {
-        macos_release::release(allow_ad_hoc, &dist, extension)?
-    } else {
-        release_executable(os, &dist, extension)?
+    let artifacts = match os {
+        "macos" => vec![macos_release::release(allow_ad_hoc, &dist, extension)?],
+        "windows" => windows_release::release(&dist, extension)?,
+        _ => linux_release::release(&dist, extension)?,
     };
-    eprintln!("release archive: {}", archive.display());
+    for artifact in artifacts {
+        eprintln!("release artifact: {}", artifact.display());
+    }
     Ok(())
 }
 
-/// Windows and Linux: the executable, [`DOCUMENTS`], and the app icon, archived.
-fn release_executable(os: &str, dist: &Path, extension: &str) -> Result<PathBuf> {
+/// Windows and Linux: builds the optimized, release-flavor executable and
+/// returns its path.
+pub fn build_executable() -> Result<PathBuf> {
     run(&mut bundle::build_command(
         Profile::Release,
         Flavor::Release,
     ))?;
-    let profile_dir = target_dir().join(Profile::Release.dir_name());
-    let stem = archive_stem(VERSION, os, std::env::consts::ARCH, false);
+    let executable = format!("{}{}", bundle::EXECUTABLE, std::env::consts::EXE_SUFFIX);
+    Ok(target_dir()
+        .join(Profile::Release.dir_name())
+        .join(executable))
+}
 
-    // Staged beside the build output: `dist` holds only archives.
-    let staging = profile_dir.join(&stem);
+/// Windows and Linux: copies `executable` and [`DOCUMENTS`] into a fresh
+/// directory named `stem`, beside the build output (`dist` holds only
+/// release artifacts), and returns it.
+pub fn stage(stem: &str, executable: &Path) -> Result<PathBuf> {
+    let staging = target_dir().join(Profile::Release.dir_name()).join(stem);
     if staging.exists() {
         std::fs::remove_dir_all(&staging).context(|| format!("removing {}", staging.display()))?;
     }
     std::fs::create_dir_all(&staging).context(|| format!("creating {}", staging.display()))?;
-    let executable = format!("{}{}", bundle::EXECUTABLE, std::env::consts::EXE_SUFFIX);
-    let files = std::iter::once((profile_dir.join(&executable), executable.as_str()))
-        .chain(DOCUMENTS.map(|name| (workspace_root().join(name), name)));
-    for (from, name) in files {
+    let name = executable.file_name().unwrap_or_default();
+    std::fs::copy(executable, staging.join(name))
+        .context(|| format!("copying {}", executable.display()))?;
+    for name in DOCUMENTS {
+        let from = workspace_root().join(name);
         std::fs::copy(&from, staging.join(name))
             .context(|| format!("copying {}", from.display()))?;
     }
-    let flavor = Flavor::Release;
-    if os == "linux" {
-        icon::write_linux_icons(
-            flavor.accent(),
-            &staging.join("icons").join("hicolor"),
-            flavor.bundle_id(),
-        )?;
-    }
-
-    let archive = dist.join(format!("{stem}.{extension}"));
-    archive_dir(&staging, &archive)?;
-    Ok(archive)
+    Ok(staging)
 }
 
 /// Archives `dir` as the single top-level directory of `archive`, in the
 /// format its extension names (`.zip`, `.tar.gz`).
-fn archive_dir(dir: &Path, archive: &Path) -> Result {
+pub fn archive_dir(dir: &Path, archive: &Path) -> Result {
     let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
         return Err(Error(format!("cannot archive {}", dir.display())));
     };
