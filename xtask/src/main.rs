@@ -5,6 +5,7 @@
 
 mod bundle;
 mod check;
+mod ci_keychain;
 mod dev_cert;
 mod dmg;
 mod icon;
@@ -47,6 +48,12 @@ Commands:
             --allow-ad-hoc  macOS: when the identity is unset, sign the app
                             ad-hoc, notarize nothing, and leave the disk image
                             unsigned; its name ends in -unsigned
+  ci-keychain
+            CI (macOS): import the Developer ID identity from
+            $CHARTREUSE_SIGN_P12_BASE64 (a base64 .p12) and
+            $CHARTREUSE_SIGN_P12_PASSWORD into a temporary keychain that
+            codesign uses without prompting, and print it
+            --skip-if-unset  do nothing if $CHARTREUSE_SIGN_P12_BASE64 is unset
   upload-release <tag>
             attach every file in target/dist to the GitHub release <tag>
             (v<version>, matching Cargo.toml) with the GitHub CLI, replacing
@@ -70,6 +77,8 @@ fn main() -> ExitCode {
         ["dev-cert"] => dev_cert::dev_cert(),
         ["release"] => release::release(false),
         ["release", "--allow-ad-hoc"] => release::release(true),
+        ["ci-keychain"] => ci_keychain::ci_keychain(false),
+        ["ci-keychain", "--skip-if-unset"] => ci_keychain::ci_keychain(true),
         ["upload-release", tag] => upload_release::upload_release(tag),
         [] | ["help" | "--help" | "-h"] => {
             print!("{USAGE}");
