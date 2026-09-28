@@ -11,7 +11,7 @@ use iced::{keyboard, Element};
 use crate::canvas::{self, Input, InputKind, View, Viewport, Zoom, ZOOM_STEP};
 use crate::font;
 use crate::model::{BlurMode, Command, Document, Rect, Shape, Style, StylePatch};
-use crate::toolbar::toolbar;
+use crate::toolbar::{toolbar, zoom_controls};
 use crate::tools::{Context, Pointer, ResizeInput, TextInput, Tool, ToolKind};
 
 /// Canvas pixels of Cmd-scrolling that double (or halve) the zoom.
@@ -237,6 +237,13 @@ impl Editor {
     /// The editor's widgets: the toolbar above the canvas.
     pub fn view(&self) -> Element<'_, Message> {
         column![toolbar(self), canvas::view(self)].into()
+    }
+
+    /// The zoom controls: zoom out, the current zoom, zoom in, and fit. Not
+    /// part of [`view`](Self::view): the owner places them (the app, in the
+    /// window's status bar).
+    pub fn zoom_controls(&self) -> Element<'_, Message> {
+        zoom_controls(self)
     }
 
     pub(crate) const fn image(&self) -> &image::Handle {

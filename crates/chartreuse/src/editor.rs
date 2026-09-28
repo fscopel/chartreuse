@@ -15,7 +15,8 @@
 //!
 //! # The status bar
 //!
-//! The bar along the bottom of the window shows the size, in pixels, of the
+//! The bar along the bottom of the window starts with the editor's zoom
+//! controls ([`Editor::zoom_controls`]), then shows the size, in pixels, of the
 //! image an export produces ([`Document::export_size`]: the crop's, if the
 //! image is cropped). Then come the buttons that export it:
 //!
@@ -442,9 +443,10 @@ fn export(app: &mut App, window: window::Id, action: Action) -> Task<AppMessage>
     )
 }
 
-/// The bar along the bottom of editor window `window`: the size of the image
-/// an export of `editor` produces, then the export buttons.
-fn status_bar<'a>(editor: &Editor, window: window::Id) -> Element<'a, AppMessage> {
+/// The bar along the bottom of editor window `window`: `editor`'s zoom
+/// controls, the size of the image an export of it produces, then the export
+/// buttons.
+fn status_bar<'a>(editor: &'a Editor, window: window::Id) -> Element<'a, AppMessage> {
     let action = |label: &'a str, target, close| {
         button(text(label))
             .style(if close {
@@ -467,6 +469,10 @@ fn status_bar<'a>(editor: &Editor, window: window::Id) -> Element<'a, AppMessage
     };
     let size = editor.document().export_size();
     row![
+        editor
+            .zoom_controls()
+            .map(move |message| AppMessage::Editor(Message::Widget(window, message))),
+        space().width(8),
         text(format!("{} × {} px", size.width, size.height)),
         space().width(Length::Fill),
         tooltip(

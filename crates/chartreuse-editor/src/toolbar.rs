@@ -1,6 +1,7 @@
 //! The editor's toolbar: tools, crop and resize controls, the style controls
-//! (color, stroke width, font size, and how blur regions obscure), undo and
-//! redo, and zoom.
+//! (color, stroke width, font size, and how blur regions obscure), and undo
+//! and redo. Also the zoom controls, which the editor's owner places
+//! ([`Editor::zoom_controls`]).
 //!
 //! # Style controls
 //!
@@ -267,8 +268,26 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
             .into(),
     ]);
 
+    row![tools]
+        .push(crop)
+        .push(resize)
+        .push(colors)
+        .push(sizes)
+        .push(blur)
+        .push(history)
+        .spacing(GROUP_SPACING)
+        .padding(8)
+        .align_y(Alignment::Center)
+        .wrap()
+        .vertical_spacing(8)
+        .into()
+}
+
+/// The zoom controls for `editor`: zoom out, the current zoom, zoom in, and
+/// fit.
+pub(crate) fn zoom_controls(editor: &Editor) -> Element<'_, Message> {
     let scale = editor.viewport(editor.canvas_size()).scale();
-    let zoom = group([
+    group([
         button(text("−"))
             .on_press(Message::Zoom(ZoomChange::Out))
             .style(button::secondary)
@@ -282,22 +301,8 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
             .on_press(Message::Zoom(ZoomChange::Fit))
             .style(button::secondary)
             .into(),
-    ]);
-
-    row![tools]
-        .push(crop)
-        .push(resize)
-        .push(colors)
-        .push(sizes)
-        .push(blur)
-        .push(history)
-        .push(zoom)
-        .spacing(GROUP_SPACING)
-        .padding(8)
-        .align_y(Alignment::Center)
-        .wrap()
-        .vertical_spacing(8)
-        .into()
+    ])
+    .into()
 }
 
 /// The resize tool's controls: the width and height fields, their unit, Keep

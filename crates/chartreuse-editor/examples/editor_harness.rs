@@ -54,7 +54,11 @@ fn update(harness: &mut Harness, message: Message) {
 }
 
 fn view(harness: &Harness) -> Element<'_, Message> {
-    harness.editor.view()
+    iced::widget::column![
+        harness.editor.view(),
+        iced::widget::container(harness.editor.zoom_controls()).padding(8),
+    ]
+    .into()
 }
 
 /// The app's theme: dark, with the flavor's accent as the primary color.
