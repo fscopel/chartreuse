@@ -372,7 +372,9 @@ Depends on: the launch-at-login decision, 3A.
 
 Depends on: the export targets decision, I4.
 
-- [ ] One task for each export target chosen in the decision
+- [x] Save-as format choice (the decision's only v1 target): the save dialog offers PNG,
+      JPEG and WebP and the chosen extension picks the encoder; saves without asking use
+      the default format, chosen in the settings window
 
 ## Stage 4 — Ports (parallel)
 
