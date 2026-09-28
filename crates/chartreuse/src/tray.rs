@@ -58,10 +58,17 @@ fn install(app: &mut App) -> Task<AppMessage> {
         }
         Err(error) => alert::report_error(
             app,
-            Notice::from_error("The menu bar icon is unavailable", &error),
+            Notice::from_error(format!("The {ICON_NAME} is unavailable"), &error),
         ),
     }
 }
+
+/// What users call the status item on this platform.
+const ICON_NAME: &str = if cfg!(target_os = "macos") {
+    "menu bar icon"
+} else {
+    "tray icon"
+};
 
 fn menu_action(action: MenuAction) -> Task<AppMessage> {
     match action {
