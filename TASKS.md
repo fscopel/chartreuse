@@ -47,6 +47,8 @@ cannot start until it is made.
 - [x] Launch at login: in scope for v1? Blocks: 3C. Decided: yes.
 - [x] Additional export targets: format choice (PNG/JPEG/WebP), copy file path, pinned
       floating capture. Blocks: 3D. Decided: format choice only.
+- [ ] Linux packages beyond the Flatpak and the `.tar.gz`: which formats (`.deb`, AUR,
+      AppImage, a Flathub submission), if any? Blocks: 5C "Further packages".
 
 ## Stage 0 — Scaffolding (sequential, one agent)
 
@@ -561,17 +563,38 @@ verification) and `ci-keychain` (with a self-signed identity) were run end to en
 
 Depends on: 4A.
 
-- [ ] Installer (tool chosen in this track) built by `cargo xtask release` on Windows, with
+- [x] Installer (tool chosen in this track) built by `cargo xtask release` on Windows, with
       code signing if available; CI uploads the artifact
-- [ ] Embed `chartreuse.ico` as the Windows executable's icon resource (build script, rc.exe)
+- [x] Embed `chartreuse.ico` as the Windows executable's icon resource (build script, rc.exe)
+
+The installer is Inno Setup 6 (`packaging/windows/chartreuse.iss`): per-user, Start menu
+shortcut, uninstaller (which also removes Open at login's `Run` entry), in-place
+upgrades. `cargo xtask ci-install-tools` installs it on the runner. Not yet run: no
+Windows machine was available while building this track, so the icon resource (`rc.exe`
+through `embed-resource`), `signtool`, and the Inno Setup build have only been checked
+by unit tests of their arguments and of the script's defines and registry entries; the
+first Windows CI run (`cargo xtask check`) and release workflow run are their first real
+runs. Signing has never run against a real certificate.
 
 ### 5C — Linux packages
 
 Depends on: 4B.
 
-- [ ] Flatpak manifest with portal permissions, built by `cargo xtask release` on Linux; CI
+- [x] Flatpak manifest with portal permissions, built by `cargo xtask release` on Linux; CI
       uploads the artifact
 - [ ] Further packages (e.g. `.deb`, AUR) as decided
+
+The Flatpak (`packaging/flatpak/io.jennings.chartreuse.yml`) builds from `cargo vendor`ed
+sources; the desktop entry and AppStream metadata (`packaging/linux/`) also ship in the
+`.tar.gz`. Not yet run: no Linux machine was available, so `flatpak-builder`, the
+bundle, and the sandbox permissions have only been checked by tests of the manifest, the
+desktop entry, and the metadata (no `desktop-file-validate` or `appstreamcli` here);
+the vendored offline build itself was checked with `cargo check --offline` on macOS.
+The first release workflow run on Linux is their first real run. Open at login inside
+the Flatpak goes through the Background portal (4B's integration pass has the check).
+
+Further packages need a decision first: which formats (`.deb`, AUR, AppImage, Flathub
+submission, …) Chartreuse should ship. None is recorded in PLAN.md.
 
 ### 5D — Artwork
 
