@@ -46,8 +46,8 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
       # Installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup toolchain install
-      # Installs packaging tools the runner lacks (Windows: Inno Setup); a
-      # no-op where there are none.
+      # Installs packaging tools the runner lacks (Windows: Inno Setup; Linux:
+      # flatpak-builder); a no-op where there are none.
       - run: cargo xtask ci-install-tools
       # macOS: imports the Developer ID identity into a temporary keychain.
       # Until the CHARTREUSE_SIGN_P12_BASE64 secret exists it does nothing (the

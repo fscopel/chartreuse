@@ -53,8 +53,9 @@ Commands:
             $CHARTREUSE_WINDOWS_SIGN_TIMESTAMP_URL, default DigiCert's) and
             verified, and a per-user installer (-setup.exe, Inno Setup 6)
             signed the same way; on Linux (.tar.gz) the executable with a
-            share/ tree (desktop entry, AppStream metadata, hicolor icons);
-            both archives with LICENSE and README.md
+            share/ tree (desktop entry, AppStream metadata, hicolor icons),
+            and a Flatpak bundle (.flatpak, flatpak-builder); both archives
+            with LICENSE and README.md
             --allow-ad-hoc  macOS: when the identity is unset, sign the app
                             ad-hoc, notarize nothing, and leave the disk image
                             unsigned; Windows: when no certificate is set,
@@ -67,7 +68,8 @@ Commands:
             --skip-if-unset  do nothing if $CHARTREUSE_SIGN_P12_BASE64 is unset
   ci-install-tools
             CI: install the packaging tools release needs that the runner
-            lacks (Windows: Inno Setup, with Chocolatey)
+            lacks (Windows: Inno Setup, with Chocolatey; Linux: flatpak and
+            flatpak-builder, with apt, allowing bwrap its user namespaces)
   upload-release <tag>
             attach every file in target/dist to the GitHub release <tag>
             (v<version>, matching Cargo.toml) with the GitHub CLI, replacing

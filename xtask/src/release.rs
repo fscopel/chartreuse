@@ -10,7 +10,7 @@
 //!   (Linux) holding one top-level directory. The Windows executable carries
 //!   the app icon as a resource; the Linux archive adds a `share/` tree with
 //!   the desktop entry, the AppStream metadata, and the app icon. Windows
-//!   also gets an installer.
+//!   also gets an installer, and Linux a Flatpak bundle.
 //!
 //! Archives are named `Chartreuse-<version>-<os>-<arch>` (the arch is
 //! `universal` on macOS), with `-unsigned` appended for an ad-hoc signed macOS

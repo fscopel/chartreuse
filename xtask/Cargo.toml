@@ -17,6 +17,7 @@ resvg = { version = "0.48.1", default-features = false }
 plist = "1.10.1"
 # Parses the AppStream metadata in tests (the version plist already uses).
 quick-xml = "0.42.0"
+yaml-rust2 = "0.13.0"
 
 [lints]
 workspace = true

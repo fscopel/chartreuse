@@ -1,7 +1,20 @@
-//! `cargo xtask release` on Linux: the release-flavor executable with the
-//! license, the readme, and a `share/` tree to copy into `~/.local/share` or
-//! `/usr/share` ([`write_share`]: the desktop entry, the AppStream metadata,
-//! and the app icon in the freedesktop `hicolor` layout), in a `.tar.gz`.
+//! `cargo xtask release` on Linux:
+//!
+//! - A `.tar.gz` of the release-flavor executable with the license, the
+//!   readme, and a `share/` tree to copy into `~/.local/share` or
+//!   `/usr/share` ([`write_share`]: the desktop entry, the AppStream
+//!   metadata, and the app icon in the freedesktop `hicolor` layout).
+//! - A Flatpak bundle (`.flatpak`) built from [`FLATPAK_MANIFEST`] with
+//!   `flatpak-builder` ([`build_flatpak`]).
+//!
+//! The Flatpak builds from source inside the Freedesktop SDK with the
+//! rust-stable extension; the sandbox has no network, so the xtask first
+//! vendors every crate with `cargo vendor` (which reads Cargo.lock, reuses
+//! Cargo's download cache, and needs no tool beyond cargo). Flathub's
+//! alternative, a sources list from `flatpak-cargo-generator.py`, needs
+//! Python and has to be regenerated and checked in on every Cargo.lock
+//! change; it only becomes worth it for a Flathub submission, which requires
+//! it.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +22,16 @@ use chartreuse_core::flavor::Flavor;
 
 use crate::icon;
 use crate::release::{archive_dir, archive_stem, build_executable, stage, VERSION};
-use crate::util::{workspace_root, Context, Result};
+use crate::util::{capture, cargo, run, tool, workspace_root, Context, Error, Result};
+
+/// The Flatpak manifest, relative to the workspace root.
+pub const FLATPAK_MANIFEST: &str = "packaging/flatpak/io.jennings.chartreuse.yml";
+/// Where the manifest's second source is staged, relative to the workspace
+/// root (not `CARGO_TARGET_DIR`: the manifest names it).
+pub const FLATPAK_STAGED: &str = "target/flatpak/staged";
+/// Flathub, where the runtime, the SDK, and its rust-stable extension come
+/// from, and where installing the bundle fetches the runtime from.
+const FLATHUB: &str = "https://dl.flathub.org/repo/flathub.flatpakrepo";
 
 /// The desktop entry, relative to the workspace root; installed as
 /// `share/applications/<app ID>.desktop`.
@@ -42,14 +64,74 @@ pub fn write_share(share: &Path) -> Result {
     icon::write_linux_icons(flavor.accent(), &share.join("icons").join("hicolor"), id)
 }
 
+/// Builds the Flatpak for the checkout into `bundle`: stages
+/// [`FLATPAK_STAGED`] (vendored crates, [`write_share`]), builds with
+/// `flatpak-builder` (installing the runtime and SDK from Flathub for the
+/// user as needed) into a repository under `target/flatpak`, and exports the
+/// app from it as a single-file bundle.
+fn build_flatpak(bundle: &Path) -> Result {
+    let flatpak = workspace_root().join("target").join("flatpak");
+    let staged = workspace_root().join(FLATPAK_STAGED);
+    if staged.exists() {
+        std::fs::remove_dir_all(&staged).context(|| format!("removing {}", staged.display()))?;
+    }
+    run(cargo()
+        .args(["vendor", "--locked", "--quiet"])
+        .arg(staged.join("vendor")))?;
+    write_share(&staged.join("share"))?;
+
+    let repo = flatpak.join("repo");
+    run(tool("flatpak").args([
+        "remote-add",
+        "--user",
+        "--if-not-exists",
+        "flathub",
+        FLATHUB,
+    ]))?;
+    run(tool("flatpak-builder")
+        .args([
+            "--user",
+            "--install-deps-from=flathub",
+            "--force-clean",
+            // rofiles-fuse only speeds up rebuilds, and needs FUSE, which
+            // containers and CI runners may lack.
+            "--disable-rofiles-fuse",
+        ])
+        .arg(format!("--state-dir={}", flatpak.join("state").display()))
+        .arg(format!("--repo={}", repo.display()))
+        .arg(flatpak.join("build"))
+        .arg(workspace_root().join(FLATPAK_MANIFEST)))?;
+    run(tool("flatpak")
+        .args(["build-bundle", &format!("--runtime-repo={FLATHUB}")])
+        .arg(&repo)
+        .arg(bundle)
+        .arg(Flavor::Release.bundle_id()))
+}
+
+/// Fails, before anything is built, if `flatpak-builder` is missing.
+fn check_flatpak_builder() -> Result {
+    capture(tool("flatpak-builder").arg("--version"))
+        .map(drop)
+        .map_err(|error| {
+            Error(format!(
+                "{error}\nflatpak-builder builds the Flatpak: install flatpak and \
+                 flatpak-builder (Debian and Ubuntu: `sudo apt install flatpak \
+                 flatpak-builder`, which `cargo xtask ci-install-tools` runs)"
+            ))
+        })
+}
+
 pub fn release(dist: &Path, extension: &str) -> Result<Vec<PathBuf>> {
+    check_flatpak_builder()?;
     let executable = build_executable()?;
     let stem = archive_stem(VERSION, "linux", std::env::consts::ARCH, false);
     let staging = stage(&stem, &executable)?;
     write_share(&staging.join("share"))?;
     let archive = dist.join(format!("{stem}.{extension}"));
     archive_dir(&staging, &archive)?;
-    Ok(vec![archive])
+    let bundle = dist.join(format!("{stem}.flatpak"));
+    build_flatpak(&bundle)?;
+    Ok(vec![archive, bundle])
 }
 
 #[cfg(test)]
@@ -255,6 +337,116 @@ mod tests {
                     && date.len() == 10
                     && date.chars().all(|c| c == '-' || c.is_ascii_digit()),
                 "{date} is YYYY-MM-DD"
+            );
+        }
+    }
+
+    fn manifest() -> yaml_rust2::Yaml {
+        let text = std::fs::read_to_string(workspace_root().join(FLATPAK_MANIFEST)).unwrap();
+        let mut documents = yaml_rust2::YamlLoader::load_from_str(&text).expect("YAML");
+        assert_eq!(documents.len(), 1, "one document");
+        documents.remove(0)
+    }
+
+    fn strings(yaml: &yaml_rust2::Yaml) -> Vec<&str> {
+        yaml.as_vec()
+            .expect("a list")
+            .iter()
+            .map(|item| item.as_str().expect("a string"))
+            .collect()
+    }
+
+    /// `path` without `.` and `..` components, resolved lexically.
+    fn normalize(path: &Path) -> PathBuf {
+        let mut normal = PathBuf::new();
+        for component in path.components() {
+            match component {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    normal.pop();
+                }
+                component => normal.push(component),
+            }
+        }
+        normal
+    }
+
+    #[test]
+    fn the_flatpak_builds_and_installs_the_release_flavor_of_this_app() {
+        let manifest = manifest();
+        assert_eq!(
+            Path::new(FLATPAK_MANIFEST).file_name().unwrap(),
+            format!("{APP_ID}.yml").as_str()
+        );
+        assert_eq!(manifest["id"].as_str(), Some(APP_ID));
+        assert_eq!(manifest["command"].as_str(), Some(EXECUTABLE));
+        let module = &manifest["modules"][0];
+        let commands = strings(&module["build-commands"]);
+        let build: Vec<&str> = commands[0].split_whitespace().collect();
+        assert_eq!(build[..3], ["cargo", "build", "--release"]);
+        for pair in [
+            ["--package", "chartreuse"],
+            ["--features", "release-flavor"],
+        ] {
+            assert!(build.windows(2).any(|w| w == pair), "{pair:?} in {build:?}");
+        }
+        for flag in ["--locked", "--offline"] {
+            assert!(build.contains(&flag), "{flag} in {build:?}");
+        }
+        let install = format!("install -Dm755 target/release/{EXECUTABLE} /app/bin/{EXECUTABLE}");
+        assert!(commands.contains(&install.as_str()), "{commands:?}");
+    }
+
+    #[test]
+    fn the_flatpak_sandbox_reaches_the_host_only_through_portals_and_the_tray() {
+        let manifest = manifest();
+        let finish_args = strings(&manifest["finish-args"]);
+        for needed in [
+            "--socket=wayland",
+            "--socket=fallback-x11",
+            "--device=dri",
+            "--talk-name=org.kde.StatusNotifierWatcher",
+        ] {
+            assert!(finish_args.contains(&needed), "{needed} in {finish_args:?}");
+        }
+        let filesystems: Vec<&str> = finish_args
+            .iter()
+            .filter_map(|arg| arg.strip_prefix("--filesystem="))
+            .collect();
+        assert_eq!(
+            filesystems,
+            ["xdg-pictures/Chartreuse:create"],
+            "only the default save folder, not host or home"
+        );
+    }
+
+    #[test]
+    fn the_flatpak_sources_are_the_workspace_and_what_the_xtask_stages() {
+        let manifest = manifest();
+        let manifest_dir = workspace_root().join(FLATPAK_MANIFEST);
+        let manifest_dir = manifest_dir.parent().unwrap();
+        let module = &manifest["modules"][0];
+        let sources = module["sources"].as_vec().unwrap();
+        assert_eq!(sources.len(), 2);
+        let resolve = |source: &yaml_rust2::Yaml| {
+            assert_eq!(source["type"].as_str(), Some("dir"));
+            normalize(&manifest_dir.join(source["path"].as_str().unwrap()))
+        };
+
+        assert_eq!(resolve(&sources[0]), normalize(workspace_root()));
+        let skipped = strings(&sources[0]["skip"]);
+        assert!(skipped.contains(&"target"), "{skipped:?}: no build output");
+
+        assert_eq!(
+            resolve(&sources[1]),
+            normalize(&workspace_root().join(FLATPAK_STAGED))
+        );
+        let dest = sources[1]["dest"].as_str().unwrap();
+        let commands = strings(&module["build-commands"]).join("\n");
+        for staged in ["vendor", "share/."] {
+            assert!(
+                commands.contains(&format!("{dest}/{staged}")),
+                "the build uses the staged {staged}: {commands}"
             );
         }
     }

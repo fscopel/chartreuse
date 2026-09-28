@@ -1,0 +1,62 @@
+# Chartreuse as a Flatpak. `cargo xtask release` on Linux builds it with
+# flatpak-builder and exports a single-file bundle,
+# target/dist/Chartreuse-<version>-linux-<arch>.flatpak. Before that, it stages
+# what the second source below expects in target/flatpak/staged:
+#
+#   vendor/  every crate in Cargo.lock (`cargo vendor`), so the build, which
+#            the sandbox keeps offline, needs no network
+#   share/   the desktop entry and AppStream metadata from packaging/linux,
+#            and the app icon rendered into icons/hicolor
+#
+# Install the bundle with `flatpak install --user Chartreuse-….flatpak`; it
+# names Flathub as the runtime's source, so flatpak fetches the runtime too.
+id: io.jennings.chartreuse
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: chartreuse
+finish-args:
+  # Windows: Wayland, or X11 where the session has no Wayland (with the IPC
+  # namespace X11's shared memory needs). Rendering on the GPU (wgpu).
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # The tray icon: a StatusNotifierItem registers with the panel's watcher.
+  # Inside the sandbox Chartreuse registers by its unique bus name, so it owns
+  # no extra name.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # Saving without a dialog writes to the default save folder,
+  # ~/Pictures/Chartreuse. Everything else outside the sandbox (screenshots,
+  # global shortcuts, open and save dialogs) goes through the desktop portals,
+  # which every Flatpak may use: no --filesystem=host or home.
+  - --filesystem=xdg-pictures/Chartreuse:create
+modules:
+  - name: chartreuse
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/chartreuse/cargo-home
+    build-commands:
+      - >-
+        cargo build --release --locked --offline
+        --package chartreuse --features release-flavor
+        --config 'source.crates-io.replace-with="vendored-sources"'
+        --config 'source.vendored-sources.directory="staged/vendor"'
+      - install -Dm755 target/release/chartreuse /app/bin/chartreuse
+      - mkdir -p /app/share
+      - cp -r staged/share/. /app/share/
+    sources:
+      # The workspace, without build output or version control.
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - .git
+          - .jj
+      - type: dir
+        path: ../../target/flatpak/staged
+        dest: staged

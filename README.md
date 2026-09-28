@@ -285,9 +285,9 @@ Everything beyond `cargo build` is a `cargo xtask` command, and CI runs nothing 
 | `cargo xtask bundle` | Signed `target/debug/Chartreuse Dev.app` (macOS) |
 | `cargo xtask run` | `bundle`, then launch it through LaunchServices. `--fake` uses the synthetic platform backend |
 | `cargo xtask dev-cert` | Once per machine (macOS): create the self-signed development signing identity that `bundle` uses when `CHARTREUSE_SIGN_IDENTITY` is unset |
-| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). Windows: the executable, with the app icon embedded, signed with `signtool` and verified, in a `.zip`, and a per-user installer (`-setup.exe`, built with [Inno Setup 6](https://jrsoftware.org/isinfo.php)) signed the same way; see [Windows](#from-a-developer-machine-windows). Linux (`.tar.gz`): the executable with a `share/` tree: the desktop entry, the AppStream metadata, and the app icon. Both archives hold `LICENSE` and `README.md`. `--allow-ad-hoc`: when no signing identity (macOS) or certificate (Windows) is set, sign the app ad-hoc (macOS) and skip signing the disk image and notarization, or sign nothing (Windows); the names end in `-unsigned`. |
+| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). Windows: the executable, with the app icon embedded, signed with `signtool` and verified, in a `.zip`, and a per-user installer (`-setup.exe`, built with [Inno Setup 6](https://jrsoftware.org/isinfo.php)) signed the same way; see [Windows](#from-a-developer-machine-windows). Linux: the executable with a `share/` tree (the desktop entry, the AppStream metadata, and the app icon) in a `.tar.gz`, and a Flatpak bundle (`.flatpak`) built with `flatpak-builder`; see [Linux](#from-a-developer-machine-linux). Both archives hold `LICENSE` and `README.md`. `--allow-ad-hoc`: when no signing identity (macOS) or certificate (Windows) is set, sign the app ad-hoc (macOS) and skip signing the disk image and notarization, or sign nothing (Windows); the names end in `-unsigned`. |
 | `cargo xtask ci-keychain` | CI (macOS): import the Developer ID identity from `CHARTREUSE_SIGN_P12_BASE64` (a base64-encoded `.p12`) and `CHARTREUSE_SIGN_P12_PASSWORD` into a temporary keychain that `codesign` uses without prompting, and print it. `--skip-if-unset` succeeds without doing anything when `CHARTREUSE_SIGN_P12_BASE64` is unset. Remove the keychain afterwards with the `security delete-keychain` command it prints (GitHub-hosted runners are discarded anyway). |
-| `cargo xtask ci-install-tools` | CI: install the packaging tools `release` needs that the runner lacks: on Windows, Inno Setup 6 with Chocolatey (GitHub's Windows Server 2025 image no longer has it). Does nothing on macOS, or when the tools are installed. |
+| `cargo xtask ci-install-tools` | CI: install the packaging tools `release` needs that the runner lacks: on Windows, Inno Setup 6 with Chocolatey (GitHub's Windows Server 2025 image no longer has it); on Debian or Ubuntu, `flatpak` and `flatpak-builder` with `sudo apt-get`, then, where AppArmor restricts unprivileged user namespaces (Ubuntu 24.04), lifts that restriction until reboot so flatpak-builder's `bwrap` sandbox can run. Installs nothing on macOS, or what is already installed. |
 | `cargo xtask upload-release <tag>` | Attach every file in `target/dist/` to the GitHub release `<tag>` with the [GitHub CLI](https://cli.github.com) (`gh`), replacing assets of the same name. The tag must be `v<version>` for the `Cargo.toml` version, and every file must be named for that version. Needs `GH_TOKEN` (or `gh auth login`), and `GH_REPO=owner/repo` outside a git checkout. |
 
 The build flavor (development or release: bundle identifier, name, accent color) is
@@ -325,6 +325,8 @@ GitHub Actions builds every platform and attaches the archives to the release
      (desktop entry, AppStream metadata, icons). To install it for yourself:
      `install -Dm755 chartreuse ~/.local/bin/chartreuse && cp -r share/. ~/.local/share/`
      (with `~/.local/bin` on `PATH`, since the desktop entry runs `chartreuse`)
+   - `Chartreuse-<version>-linux-x86_64.flatpak`: `flatpak install --user` it; flatpak
+     fetches the Freedesktop runtime from Flathub
 
 A tag that does not match the `Cargo.toml` version fails the upload, naming both.
 Re-running a failed job replaces that platform's assets. Running the workflow by hand
@@ -431,6 +433,28 @@ Setting both, or half of the second, fails the release before anything is built.
 neither, `--allow-ad-hoc` builds unsigned `-unsigned` files; without it the release
 fails, naming the variables.
 
+### From a developer machine (Linux)
+
+Install `flatpak` and `flatpak-builder` (Debian and Ubuntu: `sudo apt install flatpak
+flatpak-builder`), then run `cargo xtask release`. Besides the `.tar.gz`, it builds the
+Flatpak from [`packaging/flatpak/io.jennings.chartreuse.yml`](packaging/flatpak/io.jennings.chartreuse.yml)
+inside the Freedesktop SDK with its `rust-stable` extension, which it installs for your
+user from Flathub on first use (adding the `flathub` remote for your user if needed).
+The sandboxed build has no network, so the xtask first vendors every crate in
+`Cargo.lock` into `target/flatpak/staged/vendor` with `cargo vendor` (hundreds of
+megabytes, from Cargo's download cache where it can). The result is
+`target/dist/Chartreuse-<version>-linux-x86_64.flatpak`.
+
+The Flatpak reaches outside its sandbox only through the desktop portals (screenshots,
+global shortcuts, open and save dialogs, and Open at login), the panel's
+StatusNotifierItem watcher (the tray icon), and `~/Pictures/Chartreuse`, the default
+save folder. A save folder configured elsewhere is outside the sandbox: saving there
+without a dialog fails. Open at login goes through the Background portal, which adds
+an entry to the host's `~/.config/autostart` that runs `flatpak run` (the desktop may
+first ask whether Chartreuse may run in the background). The sandbox cannot read that
+entry back, so the toggle shows the last choice made in Chartreuse, not a change made
+in the desktop's startup settings.
+
 ## Repository layout
 
 | Path | Contents |
@@ -443,5 +467,5 @@ fails, naming the variables.
 | `crates/chartreuse-overlay` | Selection overlay canvas programs |
 | `crates/chartreuse-editor` | Editor document model, tools, and canvas |
 | `assets` | Icon sources and generated icons; `assets/macos/Chartreuse.entitlements`, the entitlements every macOS build is signed with (none, deliberately) |
-| `packaging` | What `cargo xtask release` packages with: `windows/chartreuse.iss`, the Inno Setup installer script; `linux/`, the desktop entry and AppStream metadata |
+| `packaging` | What `cargo xtask release` packages with: `windows/chartreuse.iss`, the Inno Setup installer script; `linux/`, the desktop entry and AppStream metadata; `flatpak/io.jennings.chartreuse.yml`, the Flatpak manifest |
 | `xtask` | Build automation (`cargo xtask`) |
