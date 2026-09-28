@@ -4,7 +4,10 @@
 //! widget's top-left corner (iced's `Point`, `Vector`, and `Size`). Document
 //! coordinates are base-image pixels (see [`model`](crate::model)). The
 //! user's choice of zoom and pan is a [`View`]; combined with the current
-//! canvas and image sizes it yields a [`Viewport`], the actual mapping.
+//! canvas size and the part of the document shown (the *area*: the whole
+//! image, or a crop of it) it yields a [`Viewport`], the actual mapping.
+//! Zooming, fitting, centering, and the pan limits all treat the area as the
+//! image.
 
 use iced::{Point as CanvasPoint, Rectangle, Size as CanvasSize, Vector as CanvasVector};
 
@@ -63,31 +66,37 @@ impl View {
         self.zoom
     }
 
-    /// The scale `zoom` stands for, for a canvas and image of these sizes.
+    /// The scale `zoom` stands for, for a canvas and area of these sizes.
     #[must_use]
-    pub fn scale(&self, canvas: CanvasSize, image: Size) -> f32 {
+    pub fn scale(&self, canvas: CanvasSize, area: Size) -> f32 {
         match self.zoom {
-            Zoom::Fit => fit_scale(canvas, image),
+            Zoom::Fit => fit_scale(canvas, area),
             Zoom::Scale(scale) => scale,
         }
     }
 
-    /// The mapping this view gives for a canvas and image of these sizes.
+    /// The mapping this view gives for a canvas of this size showing `area`
+    /// (document coordinates).
     #[must_use]
-    pub fn viewport(&self, canvas: CanvasSize, image: Size) -> Viewport {
-        let scale = self.scale(canvas, image);
-        let pan = clamp_pan(self.pan, canvas, image, scale);
+    pub fn viewport(&self, canvas: CanvasSize, area: Rect) -> Viewport {
+        let size = area.size();
+        let scale = self.scale(canvas, size);
+        let pan = clamp_pan(self.pan, canvas, size, scale);
+        let corner = centered_origin(canvas, size, scale) + pan;
         Viewport {
             scale,
-            origin: centered_origin(canvas, image, scale) + pan,
+            origin: CanvasPoint::new(
+                corner.x - area.min().x * scale,
+                corner.y - area.min().y * scale,
+            ),
         }
     }
 
     /// Switches to `zoom`, keeping the document point under `anchor` (canvas
     /// coordinates) where it is, as far as the pan limits allow. `Fit` always
     /// centers.
-    pub fn zoom_to(&mut self, zoom: Zoom, anchor: CanvasPoint, canvas: CanvasSize, image: Size) {
-        let under = self.viewport(canvas, image).to_document(anchor);
+    pub fn zoom_to(&mut self, zoom: Zoom, anchor: CanvasPoint, canvas: CanvasSize, area: Rect) {
+        let under = self.viewport(canvas, area).to_document(anchor);
         self.zoom = match zoom {
             Zoom::Fit => Zoom::Fit,
             Zoom::Scale(scale) => Zoom::Scale(clamp_scale(scale)),
@@ -95,35 +104,34 @@ impl View {
         self.pan = match self.zoom {
             Zoom::Fit => CanvasVector::ZERO,
             Zoom::Scale(scale) => {
-                let origin = centered_origin(canvas, image, scale);
-                let wanted =
-                    CanvasVector::new(anchor.x - under.x * scale, anchor.y - under.y * scale);
-                clamp_pan(
-                    CanvasVector::new(wanted.x - origin.x, wanted.y - origin.y),
-                    canvas,
-                    image,
-                    scale,
-                )
+                let size = area.size();
+                let centered = centered_origin(canvas, size, scale);
+                // Where the area's corner goes to keep `under` at `anchor`.
+                let wanted = CanvasPoint::new(
+                    anchor.x - (under.x - area.min().x) * scale,
+                    anchor.y - (under.y - area.min().y) * scale,
+                );
+                clamp_pan(wanted - centered, canvas, size, scale)
             }
         };
     }
 
     /// Multiplies the current scale by `factor` around `anchor` (see
     /// [`zoom_to`](Self::zoom_to)).
-    pub fn zoom_by(&mut self, factor: f32, anchor: CanvasPoint, canvas: CanvasSize, image: Size) {
-        let scale = self.scale(canvas, image) * factor;
+    pub fn zoom_by(&mut self, factor: f32, anchor: CanvasPoint, canvas: CanvasSize, area: Rect) {
+        let scale = self.scale(canvas, area.size()) * factor;
         if scale.is_finite() {
-            self.zoom_to(Zoom::Scale(scale), anchor, canvas, image);
+            self.zoom_to(Zoom::Scale(scale), anchor, canvas, area);
         }
     }
 
-    /// Moves the image by `delta` canvas pixels, within the pan limits.
-    pub fn pan_by(&mut self, delta: CanvasVector, canvas: CanvasSize, image: Size) {
+    /// Moves the area by `delta` canvas pixels, within the pan limits.
+    pub fn pan_by(&mut self, delta: CanvasVector, canvas: CanvasSize, area: Rect) {
         if let Zoom::Scale(scale) = self.zoom
             && delta.x.is_finite()
             && delta.y.is_finite()
         {
-            self.pan = clamp_pan(self.pan + delta, canvas, image, scale);
+            self.pan = clamp_pan(self.pan + delta, canvas, area.size(), scale);
         }
     }
 }
@@ -237,8 +245,14 @@ impl Viewport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Point;
 
     const IMAGE: Size = Size::new(2000.0, 1000.0);
+
+    /// The whole of an [`IMAGE`]-sized image.
+    fn image() -> Rect {
+        Rect::new(Point::ORIGIN, IMAGE)
+    }
 
     fn close(a: CanvasPoint, b: CanvasPoint) -> bool {
         a.distance(b) < 1e-3
@@ -247,7 +261,7 @@ mod tests {
     #[test]
     fn fit_shrinks_the_image_into_the_margins_and_centers_it() {
         let canvas = CanvasSize::new(1032.0, 800.0);
-        let viewport = View::default().viewport(canvas, IMAGE);
+        let viewport = View::default().viewport(canvas, image());
         assert_eq!(viewport.scale(), 0.5);
         assert_eq!(viewport.origin(), CanvasPoint::new(16.0, 150.0));
     }
@@ -255,7 +269,7 @@ mod tests {
     #[test]
     fn fit_never_magnifies() {
         let canvas = CanvasSize::new(3000.0, 3000.0);
-        let viewport = View::default().viewport(canvas, IMAGE);
+        let viewport = View::default().viewport(canvas, image());
         assert_eq!(viewport.scale(), 1.0);
         assert_eq!(viewport.origin(), CanvasPoint::new(500.0, 1000.0));
     }
@@ -268,9 +282,9 @@ mod tests {
             Zoom::Scale(3.0),
             CanvasPoint::new(100.0, 50.0),
             canvas,
-            IMAGE,
+            image(),
         );
-        let viewport = view.viewport(canvas, IMAGE);
+        let viewport = view.viewport(canvas, image());
         let point = CanvasPoint::new(123.5, 456.25);
         assert!(close(
             viewport.to_canvas(viewport.to_document(point)),
@@ -280,14 +294,35 @@ mod tests {
     }
 
     #[test]
+    fn an_area_off_the_origin_is_shown_as_an_image_of_its_size_would_be() {
+        let canvas = CanvasSize::new(1032.0, 800.0);
+        let area = Rect::new(Point::new(300.0, 200.0), IMAGE);
+        let mut view = View::default();
+        let whole = view.viewport(canvas, image());
+        let offset = view.viewport(canvas, area);
+        assert_eq!(offset.scale(), whole.scale());
+        assert_eq!(offset.to_canvas(area.min()), whole.to_canvas(Point::ORIGIN));
+
+        // Zooming keeps the point under the anchor; the pan limits apply to
+        // the area's edges.
+        let anchor = CanvasPoint::new(300.0, 200.0);
+        let under = offset.to_document(anchor);
+        view.zoom_by(4.0, anchor, canvas, area);
+        assert!(close(view.viewport(canvas, area).to_canvas(under), anchor));
+        view.pan_by(CanvasVector::new(1e6, 1e6), canvas, area);
+        let corner = view.viewport(canvas, area).to_canvas(area.min());
+        assert_eq!((corner.x, corner.y), (MARGIN, MARGIN));
+    }
+
+    #[test]
     fn zooming_keeps_the_point_under_the_anchor_in_place() {
         let mut view = View::default();
         let canvas = CanvasSize::new(800.0, 600.0);
         let anchor = CanvasPoint::new(300.0, 200.0);
-        let under = view.viewport(canvas, IMAGE).to_document(anchor);
+        let under = view.viewport(canvas, image()).to_document(anchor);
 
-        view.zoom_by(4.0, anchor, canvas, IMAGE);
-        let viewport = view.viewport(canvas, IMAGE);
+        view.zoom_by(4.0, anchor, canvas, image());
+        let viewport = view.viewport(canvas, image());
         assert!((viewport.scale() - 4.0 * 0.384).abs() < 1e-4);
         assert!(close(viewport.to_canvas(under), anchor));
     }
@@ -296,9 +331,9 @@ mod tests {
     fn pan_stops_at_the_margin() {
         let mut view = View::default();
         let canvas = CanvasSize::new(800.0, 600.0);
-        view.zoom_to(Zoom::Scale(1.0), CanvasPoint::ORIGIN, canvas, IMAGE);
-        view.pan_by(CanvasVector::new(1e6, -1e6), canvas, IMAGE);
-        let viewport = view.viewport(canvas, IMAGE);
+        view.zoom_to(Zoom::Scale(1.0), CanvasPoint::ORIGIN, canvas, image());
+        view.pan_by(CanvasVector::new(1e6, -1e6), canvas, image());
+        let viewport = view.viewport(canvas, image());
         // Dragged right as far as it goes: the image's left edge sits MARGIN
         // inside the canvas. Dragged up: its bottom edge does.
         assert_eq!(viewport.origin().x, MARGIN);
@@ -310,9 +345,9 @@ mod tests {
         let mut view = View::default();
         let canvas = CanvasSize::new(800.0, 2000.0);
         let center = CanvasPoint::new(400.0, 1000.0);
-        view.zoom_to(Zoom::Scale(1.0), center, canvas, IMAGE);
-        view.pan_by(CanvasVector::new(50.0, 50.0), canvas, IMAGE);
-        let origin = view.viewport(canvas, IMAGE).origin();
+        view.zoom_to(Zoom::Scale(1.0), center, canvas, image());
+        view.pan_by(CanvasVector::new(50.0, 50.0), canvas, image());
+        let origin = view.viewport(canvas, image()).origin();
         assert_eq!(origin.y, 500.0, "fits vertically: centered");
         assert_eq!(origin.x, (800.0 - 2000.0) / 2.0 + 50.0, "wider: pans");
     }
@@ -321,11 +356,11 @@ mod tests {
     fn scales_are_clamped_and_fit_recenters() {
         let mut view = View::default();
         let canvas = CanvasSize::new(800.0, 600.0);
-        view.zoom_to(Zoom::Scale(1000.0), CanvasPoint::ORIGIN, canvas, IMAGE);
+        view.zoom_to(Zoom::Scale(1000.0), CanvasPoint::ORIGIN, canvas, image());
         assert_eq!(view.zoom(), Zoom::Scale(MAX_SCALE));
-        view.zoom_by(0.0, CanvasPoint::ORIGIN, canvas, IMAGE);
+        view.zoom_by(0.0, CanvasPoint::ORIGIN, canvas, image());
         assert_eq!(view.zoom(), Zoom::Scale(MIN_SCALE));
-        view.zoom_to(Zoom::Fit, CanvasPoint::new(10.0, 10.0), canvas, IMAGE);
+        view.zoom_to(Zoom::Fit, CanvasPoint::new(10.0, 10.0), canvas, image());
         assert_eq!(view, View::default());
     }
 }

@@ -8,7 +8,7 @@ use iced::{keyboard, Element};
 
 use crate::canvas::{self, Input, InputKind, View, Viewport, Zoom, ZOOM_STEP};
 use crate::font;
-use crate::model::{BlurMode, Command, Document, Shape, Size, Style, StylePatch};
+use crate::model::{BlurMode, Command, Document, Rect, Shape, Style, StylePatch};
 use crate::toolbar::toolbar;
 use crate::tools::{Context, Pointer, TextInput, Tool, ToolKind};
 
@@ -239,11 +239,12 @@ impl Editor {
 
     /// The mapping for a canvas of `size`.
     pub(crate) fn viewport(&self, size: iced::Size) -> Viewport {
-        self.view.viewport(size, self.image_size())
+        self.view.viewport(size, self.area())
     }
 
-    fn image_size(&self) -> Size {
-        self.document.bounds().size()
+    /// The part of the document the canvas shows.
+    fn area(&self) -> Rect {
+        self.document.bounds()
     }
 
     fn canvas_input(&mut self, input: Input) -> Option<Event> {
@@ -259,12 +260,12 @@ impl Editor {
                 self.pointer = None;
             }
             InputKind::Scroll { position, delta } => {
-                let image = self.image_size();
+                let area = self.area();
                 if self.modifiers.command() {
                     let factor = (delta.y / SCROLL_PER_DOUBLING).exp2();
-                    self.view.zoom_by(factor, position, self.canvas, image);
+                    self.view.zoom_by(factor, position, self.canvas, area);
                 } else {
-                    self.view.pan_by(delta, self.canvas, image);
+                    self.view.pan_by(delta, self.canvas, area);
                 }
             }
             InputKind::Key {
@@ -316,16 +317,16 @@ impl Editor {
 
     fn zoom_by(&mut self, change: ZoomChange) {
         let center = iced::Point::new(self.canvas.width / 2.0, self.canvas.height / 2.0);
-        let image = self.image_size();
+        let area = self.area();
         match change {
-            ZoomChange::In => self.view.zoom_by(ZOOM_STEP, center, self.canvas, image),
+            ZoomChange::In => self.view.zoom_by(ZOOM_STEP, center, self.canvas, area),
             ZoomChange::Out => self
                 .view
-                .zoom_by(1.0 / ZOOM_STEP, center, self.canvas, image),
-            ZoomChange::Fit => self.view.zoom_to(Zoom::Fit, center, self.canvas, image),
+                .zoom_by(1.0 / ZOOM_STEP, center, self.canvas, area),
+            ZoomChange::Fit => self.view.zoom_to(Zoom::Fit, center, self.canvas, area),
             ZoomChange::ActualSize => {
                 self.view
-                    .zoom_to(Zoom::Scale(1.0), center, self.canvas, image);
+                    .zoom_to(Zoom::Scale(1.0), center, self.canvas, area);
             }
         }
     }

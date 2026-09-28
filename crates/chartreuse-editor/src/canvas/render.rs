@@ -449,8 +449,10 @@ mod tests {
         // 2×, document point (20, 5) is canvas point (70, 30), device pixel
         // (140, 60): pixel (30, 0) of a grid from device pixel (110, 60).
         // Each document unit is two pixels.
-        let viewport =
-            View::default().viewport(CanvasSize::new(200.0, 100.0), Size::new(100.0, 50.0));
+        let viewport = View::default().viewport(
+            CanvasSize::new(200.0, 100.0),
+            Rect::new(Point::ORIGIN, Size::new(100.0, 50.0)),
+        );
         let grid = DeviceBlock::covering(rect(55.25, 30.0, 20.0, 20.0), 2.0);
         let mut points = [
             tiny_skia::Point::from_xy(20.0, 5.0),

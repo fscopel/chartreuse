@@ -862,7 +862,7 @@ mod tests {
         let document = document("st");
         let annotations = document.annotations();
         let size = Size::new(40.0, 40.0);
-        let view = |canvas| View::default().viewport(canvas, document.bounds().size());
+        let view = |canvas| View::default().viewport(canvas, document.bounds());
         let shows = |viewport, annotations| {
             Some(Content::Annotations {
                 viewport,
