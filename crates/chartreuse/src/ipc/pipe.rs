@@ -39,6 +39,7 @@ use windows::Win32::System::Pipes::{
 use windows::Win32::System::Threading::{
     GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
 
 /// The pipe's buffer sizes: a request or reply is one short line.
 const BUFFER_SIZE: u32 = 4096;
@@ -210,6 +211,7 @@ pub fn connect(endpoint: &Endpoint) -> io::Result<Stream> {
                         "another user's process holds the pipe",
                     ));
                 }
+                allow_foreground(&file);
                 return Ok(Stream(file));
             }
             Err(error)
@@ -239,6 +241,22 @@ fn user_of_server(pipe: &File) -> io::Result<Vec<u8>> {
     // SAFETY: the handle was just opened, is valid, and nothing else owns it.
     let process = unsafe { OwnedHandle::from_raw_handle(process.0) };
     user_of(HANDLE(process.as_raw_handle()))
+}
+
+/// Lets the process serving `pipe` bring its windows to the front, as this
+/// process may: it was started by the foreground process (a terminal, or the
+/// shell for a shortcut). Windows keeps a background process's new windows
+/// behind the active one otherwise, so a command's overlays would not get
+/// the keyboard focus, nor its editor come to the front. A failure only
+/// leaves them there.
+fn allow_foreground(pipe: &File) {
+    let mut server = 0;
+    // SAFETY: `pipe` is an open pipe handle for the duration of the call.
+    let found = unsafe { GetNamedPipeServerProcessId(HANDLE(pipe.as_raw_handle()), &mut server) };
+    // SAFETY: a plain call.
+    if let Err(error) = found.and_then(|()| unsafe { AllowSetForegroundWindow(server) }) {
+        tracing::debug!(%error, "the instance may not come to the front");
+    }
 }
 
 /// This process, as a pseudo handle that needs no closing.
