@@ -4,14 +4,15 @@
 //!
 //! - One trait per concern, each in its own module: [`Displays`], [`Capture`],
 //!   [`WindowList`], [`Hotkeys`], [`StatusItem`], [`Clipboard`], [`FileDialogs`],
-//!   [`OverlayWindowStyle`], [`Permissions`].
+//!   [`OverlayWindowStyle`], [`Permissions`], [`LaunchAtLogin`].
 //! - One backend directory per platform — `macos/`, `windows/`, `linux/x11/`,
 //!   `linux/wayland/` — with **one file per trait** (`displays.rs`, `capture.rs`,
 //!   `window_list.rs`, `hotkeys.rs`, `status_item.rs`, `clipboard.rs`,
-//!   `dialogs.rs`, `overlay_style.rs`, `permissions.rs`), so parallel tracks never
-//!   edit the same file. Each file exports one type with an infallible `new()`;
-//!   the directory's `mod.rs` assembles them into a [`Platform`] and never needs
-//!   to change.
+//!   `dialogs.rs`, `overlay_style.rs`, `permissions.rs`, `launch_at_login.rs`),
+//!   so parallel tracks never edit the same file. (The two Linux backends share
+//!   `linux/launch_at_login.rs`: XDG autostart is the same on X11 and Wayland.)
+//!   Each file exports one type with an infallible `new()`; the directory's
+//!   `mod.rs` assembles them into a [`Platform`] and never needs to change.
 //! - [`fake`]: a synthetic backend for tests and UI work.
 //!
 //! Backends that are not implemented yet fail every call with
@@ -69,6 +70,7 @@ pub mod displays;
 pub mod event;
 pub mod fake;
 pub mod hotkeys;
+pub mod launch_at_login;
 pub mod overlay_style;
 pub mod permissions;
 pub mod status_item;
@@ -96,6 +98,7 @@ pub use dialogs::{FileDialogs, OpenImageRequest, SaveImageRequest};
 pub use displays::Displays;
 pub use event::{EventReceiver, EventSender, Registration};
 pub use hotkeys::{HotkeyBinding, HotkeyEvent, HotkeyRegistration, Hotkeys};
+pub use launch_at_login::LaunchAtLogin;
 pub use overlay_style::{NativeWindow, OverlayWindowStyle};
 pub use permissions::Permissions;
 pub use status_item::{MenuAction, MenuEntry, StatusItem, StatusItemHandle, MENU};
@@ -115,6 +118,7 @@ pub struct Platform {
     pub file_dialogs: Box<dyn FileDialogs>,
     pub overlay_style: Arc<dyn OverlayWindowStyle>,
     pub permissions: Box<dyn Permissions>,
+    pub launch_at_login: Box<dyn LaunchAtLogin>,
 }
 
 impl std::fmt::Debug for Platform {

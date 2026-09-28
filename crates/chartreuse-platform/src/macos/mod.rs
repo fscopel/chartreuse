@@ -12,6 +12,7 @@ mod clipboard;
 mod dialogs;
 mod displays;
 mod hotkeys;
+mod launch_at_login;
 mod overlay_style;
 mod permissions;
 mod status_item;
@@ -33,5 +34,6 @@ pub fn platform() -> Platform {
         file_dialogs: Box::new(dialogs::MacosFileDialogs::new()),
         overlay_style: Arc::new(overlay_style::MacosOverlayStyle::new()),
         permissions: Box::new(permissions::MacosPermissions::new()),
+        launch_at_login: Box::new(launch_at_login::MacosLaunchAtLogin::new()),
     }
 }

@@ -33,5 +33,6 @@ pub fn platform() -> Platform {
         file_dialogs: Box::new(dialogs::X11FileDialogs::new()),
         overlay_style: Arc::new(overlay_style::X11OverlayStyle::new()),
         permissions: Box::new(permissions::X11Permissions::new()),
+        launch_at_login: Box::new(crate::linux::launch_at_login::LinuxLaunchAtLogin::new()),
     }
 }

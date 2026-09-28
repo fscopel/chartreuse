@@ -21,6 +21,8 @@ mod displays;
 #[cfg(windows)]
 mod hotkeys;
 #[cfg(windows)]
+mod launch_at_login;
+#[cfg(windows)]
 mod overlay_style;
 #[cfg(windows)]
 mod permissions;
@@ -61,5 +63,6 @@ pub fn platform() -> Platform {
         file_dialogs: Box::new(dialogs::WindowsFileDialogs::new()),
         overlay_style: Arc::new(overlay_style::WindowsOverlayStyle::new()),
         permissions: Box::new(permissions::WindowsPermissions::new()),
+        launch_at_login: Box::new(launch_at_login::WindowsLaunchAtLogin::new()),
     }
 }

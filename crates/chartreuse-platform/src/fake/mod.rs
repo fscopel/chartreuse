@@ -14,6 +14,7 @@ mod clipboard;
 mod dialogs;
 mod displays;
 mod hotkeys;
+mod launch_at_login;
 mod overlay_style;
 mod permissions;
 mod status_item;
@@ -30,6 +31,7 @@ use chartreuse_core::hotkey::Hotkey;
 use chartreuse_core::image::Image;
 use chartreuse_core::permission::{Permission, PermissionStatus};
 use chartreuse_core::window::{WindowId, WindowInfo, WindowOwner};
+use chartreuse_core::Error;
 use parking_lot::Mutex;
 
 use crate::dialogs::SaveImageRequest;
@@ -64,6 +66,14 @@ struct State {
     save_answer: Option<PathBuf>,
     save_requests: Vec<SaveImageRequest>,
     overlays_styled: usize,
+    /// Whether "the OS" starts the app at login.
+    launch_at_login: bool,
+    /// While set, `LaunchAtLogin::set` fails with this, changing nothing.
+    launch_at_login_refusal: Option<Error>,
+    /// While set, `LaunchAtLogin::status` fails with this.
+    launch_at_login_unreadable: Option<Error>,
+    /// Every value given to `LaunchAtLogin::set` that took, in order.
+    launch_at_login_sets: Vec<bool>,
 }
 
 impl Default for State {
@@ -83,6 +93,10 @@ impl Default for State {
             save_answer: None,
             save_requests: Vec::new(),
             overlays_styled: 0,
+            launch_at_login: false,
+            launch_at_login_refusal: None,
+            launch_at_login_unreadable: None,
+            launch_at_login_sets: Vec::new(),
         }
     }
 }
@@ -231,6 +245,7 @@ impl Fake {
             file_dialogs: Box::new(self.clone()),
             overlay_style: Arc::new(self.clone()),
             permissions: Box::new(self.clone()),
+            launch_at_login: Box::new(self.clone()),
         }
     }
 
@@ -330,5 +345,36 @@ impl Fake {
     #[must_use]
     pub fn overlays_styled(&self) -> usize {
         self.state.lock().overlays_styled
+    }
+
+    /// Changes whether the app starts at login behind the app's back, as the
+    /// user can in the OS's own settings.
+    pub fn set_launch_at_login(&self, enabled: bool) {
+        self.state.lock().launch_at_login = enabled;
+    }
+
+    /// Whether the app starts at login (off by default).
+    #[must_use]
+    pub fn launch_at_login(&self) -> bool {
+        self.state.lock().launch_at_login
+    }
+
+    /// Makes changing launch at login fail with `error`, until called again
+    /// with `None`.
+    pub fn set_launch_at_login_refusal(&self, error: Option<Error>) {
+        self.state.lock().launch_at_login_refusal = error;
+    }
+
+    /// Makes reading launch at login fail with `error`, until called again
+    /// with `None`.
+    pub fn set_launch_at_login_unreadable(&self, error: Option<Error>) {
+        self.state.lock().launch_at_login_unreadable = error;
+    }
+
+    /// Every value `LaunchAtLogin::set` applied, in order (failed calls are
+    /// not listed).
+    #[must_use]
+    pub fn launch_at_login_sets(&self) -> Vec<bool> {
+        self.state.lock().launch_at_login_sets.clone()
     }
 }

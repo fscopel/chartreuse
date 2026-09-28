@@ -31,5 +31,6 @@ pub fn platform() -> Platform {
         file_dialogs: Box::new(dialogs::WaylandFileDialogs::new()),
         overlay_style: Arc::new(overlay_style::WaylandOverlayStyle::new()),
         permissions: Box::new(permissions::WaylandPermissions::new()),
+        launch_at_login: Box::new(crate::linux::launch_at_login::LinuxLaunchAtLogin::new()),
     }
 }

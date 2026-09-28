@@ -45,6 +45,8 @@ mod blocking;
 mod clipboard;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod file_chooser;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod launch_at_login;
 #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
 mod logic;
 #[cfg(all(unix, not(target_os = "macos")))]

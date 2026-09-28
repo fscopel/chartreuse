@@ -27,6 +27,8 @@ objc2-core-foundation.workspace = true
 objc2-core-graphics.workspace = true
 objc2-foundation.workspace = true
 objc2-screen-capture-kit.workspace = true
+# `SMAppService`: the app as its own login item.
+objc2-service-management.workspace = true
 objc2-uniform-type-identifiers.workspace = true
 
 [target.'cfg(windows)'.dependencies]
