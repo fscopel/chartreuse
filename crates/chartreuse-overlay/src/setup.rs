@@ -32,6 +32,22 @@
 //! This relies on the app's iced scale factor being 1 (the default): iced scales
 //! a new window's size, but not its position, by that factor.
 //!
+//! Elsewhere the logical position is only a first guess, which the platform
+//! style corrects where it can (it is told the display it covers):
+//!
+//! - Windows: winit converts the position to pixels with the scale factor of
+//!   the monitor the window is created on, so with mixed DPI overlays for
+//!   monitors of another scale land beside them. The style moves each overlay
+//!   over its monitor's physical rectangle.
+//! - X11: the display model divides the root window's pixels by the one
+//!   scale factor winit uses for every monitor (`Xft.dpi`), so the conversion
+//!   is exact. Without a DPI setting winit gives each monitor a factor of its
+//!   own and overlays on monitors of another factor are misplaced.
+//!
+//! Either way the overlay canvas is stretched over its display's logical
+//! bounds, so a window that covers its display maps the pointer correctly
+//! whatever scale factor iced renders it at.
+//!
 //! # Showing
 //!
 //! Overlays open hidden, so they never appear as ordinary windows below the

@@ -34,7 +34,8 @@ impl<'a> NativeWindow<'a> {
 /// `Send + Sync` because the app calls it from inside the `Send` callback of
 /// `iced::window::run`, which executes on the main thread.
 pub trait OverlayWindowStyle: Send + Sync {
-    /// Applies the overlay style to the window that covers `display`. **Main
-    /// thread only.**
+    /// Applies the overlay style to the window that covers `display`, and
+    /// corrects its placement where iced's logical position can miss the
+    /// display (Windows with mixed DPI). **Main thread only.**
     fn apply(&self, window: NativeWindow<'_>, display: &DisplayInfo) -> Result<()>;
 }

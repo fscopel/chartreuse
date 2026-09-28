@@ -9,16 +9,24 @@
 //!   window is shown, so a visible window is hidden and shown again around it;
 //! - display affinity `WDA_EXCLUDEFROMCAPTURE` (Windows 10 2004 and later), so
 //!   captures never contain an overlay. Older versions keep the overlay capturable,
-//!   which only matters if another capture starts while one is on screen.
+//!   which only matters if another capture starts while one is on screen;
+//! - the physical rectangle of its display's monitor ([`cover`]). iced places
+//!   windows at a logical position, which winit converts to pixels with the
+//!   scale factor of the monitor the window was created on (the primary), so
+//!   with mixed DPI an overlay would miss every monitor of another scale.
+//!   Placed in pixels instead, it covers its monitor exactly, whatever scale
+//!   factor iced then renders it at: the overlay canvas is stretched over its
+//!   display's logical bounds, so its coordinates stay right.
 
 use std::ffi::c_void;
 
-use ::windows::Win32::Foundation::{SetLastError, HWND, WIN32_ERROR};
+use ::windows::Win32::Foundation::{SetLastError, HWND, RECT, WIN32_ERROR};
+use ::windows::Win32::Graphics::Gdi::{GetMonitorInfoW, HMONITOR, MONITORINFO};
 use ::windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongW, IsWindowVisible, SetWindowDisplayAffinity, SetWindowLongW, SetWindowPos,
-    ShowWindow, GWL_EXSTYLE, HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SW_HIDE, SW_SHOW, WDA_EXCLUDEFROMCAPTURE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST,
+    ShowWindow, GWL_EXSTYLE, HWND_TOPMOST, SET_WINDOW_POS_FLAGS, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WDA_EXCLUDEFROMCAPTURE,
+    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
 };
 use chartreuse_core::display::DisplayInfo;
 use chartreuse_core::{Error, Result};
@@ -38,7 +46,7 @@ impl WindowsOverlayStyle {
 }
 
 impl OverlayWindowStyle for WindowsOverlayStyle {
-    fn apply(&self, window: NativeWindow<'_>, _display: &DisplayInfo) -> Result<()> {
+    fn apply(&self, window: NativeWindow<'_>, display: &DisplayInfo) -> Result<()> {
         let RawWindowHandle::Win32(handle) = window.window.as_raw() else {
             return Err(Error::Platform("the overlay is not a Win32 window".into()));
         };
@@ -80,6 +88,67 @@ impl OverlayWindowStyle for WindowsOverlayStyle {
                 tracing::debug!(%error, "overlay stays capturable (needs Windows 10 2004)");
             }
         }
-        Ok(())
+        // SAFETY: as above.
+        unsafe { cover(hwnd, display) }
     }
+}
+
+/// Moves `hwnd` over the physical rectangle of `display`'s monitor.
+///
+/// Twice: when the first move takes the window onto a monitor of another DPI,
+/// Windows sends `WM_DPICHANGED`, and winit answers it by resizing the window
+/// to keep its logical size at the new scale. The second move, within that
+/// monitor, changes no DPI and sets the exact rectangle.
+///
+/// # Safety
+///
+/// `hwnd` is a live window owned by the calling thread.
+unsafe fn cover(hwnd: HWND, display: &DisplayInfo) -> Result<()> {
+    let rect = monitor_rect(display)?;
+    for _ in 0..2 {
+        // SAFETY: the caller's.
+        unsafe { move_to(hwnd, rect, SWP_NOZORDER | SWP_NOACTIVATE) }?;
+    }
+    Ok(())
+}
+
+/// The physical rectangle of the monitor of `display`, whose id is its
+/// `HMONITOR` (see `displays.rs`).
+fn monitor_rect(display: &DisplayInfo) -> Result<RECT> {
+    let monitor = HMONITOR(display.id.0 as usize as *mut c_void);
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..MONITORINFO::default()
+    };
+    // SAFETY: `info` is a MONITORINFO whose cbSize says so; a stale handle
+    // only fails the call.
+    if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        Ok(info.rcMonitor)
+    } else {
+        Err(Error::Platform(format!(
+            "the display {} is no longer connected",
+            display.name
+        )))
+    }
+}
+
+/// `SetWindowPos` to `rect` (exclusive right and bottom edges).
+///
+/// # Safety
+///
+/// `hwnd` is a live window owned by the calling thread.
+unsafe fn move_to(hwnd: HWND, rect: RECT, flags: SET_WINDOW_POS_FLAGS) -> Result<()> {
+    // SAFETY: the caller's.
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            flags,
+        )
+    }
+    .map_err(|e| platform_error("SetWindowPos", &e))
 }
