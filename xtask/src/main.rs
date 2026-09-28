@@ -36,7 +36,7 @@ Commands:
   dev-cert  create a self-signed development signing identity in its own
             keychain (macOS, once per machine), so the Screen Recording
             permission survives rebuilds
-  icons     re-render the status item and tray icons checked in under
+  icons     re-render the app, status item, and tray icons checked in under
             assets/icon/generated from their SVG sources (after editing one)
   release   release build for this OS, archived into target/dist (emptied
             first) as Chartreuse-<version>-<os>-<arch>: on macOS a disk image
@@ -45,12 +45,18 @@ Commands:
             ($CHARTREUSE_NOTARY_PROFILE, or $CHARTREUSE_NOTARY_KEY_ID,
             $CHARTREUSE_NOTARY_ISSUER, and $CHARTREUSE_NOTARY_KEY_PATH or
             $CHARTREUSE_NOTARY_KEY), stapled, and verified; on Windows (.zip)
-            and Linux (.tar.gz) the executable (on Windows with the app icon
-            embedded) with LICENSE and README.md, and on Linux the app icon
-            (icons/hicolor/<size>x<size>/apps/*.png)
+            the executable, with the app icon embedded, signed with signtool
+            ($CHARTREUSE_WINDOWS_SIGN_CERT_SHA1, a certificate store
+            thumbprint, or $CHARTREUSE_WINDOWS_SIGN_PFX_BASE64 and
+            $CHARTREUSE_WINDOWS_SIGN_PFX_PASSWORD; timestamped by
+            $CHARTREUSE_WINDOWS_SIGN_TIMESTAMP_URL, default DigiCert's) and
+            verified; on Linux (.tar.gz) the executable with the app icon
+            (icons/hicolor/<size>x<size>/apps/*.png); both with LICENSE and
+            README.md
             --allow-ad-hoc  macOS: when the identity is unset, sign the app
                             ad-hoc, notarize nothing, and leave the disk image
-                            unsigned; its name ends in -unsigned
+                            unsigned; Windows: when no certificate is set,
+                            sign nothing; the names end in -unsigned
   ci-keychain
             CI (macOS): import the Developer ID identity from
             $CHARTREUSE_SIGN_P12_BASE64 (a base64 .p12) and

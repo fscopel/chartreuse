@@ -56,16 +56,21 @@ jobs:
           CHARTREUSE_SIGN_P12_BASE64: ${{ secrets.CHARTREUSE_SIGN_P12_BASE64 }}
           CHARTREUSE_SIGN_P12_PASSWORD: ${{ secrets.CHARTREUSE_SIGN_P12_PASSWORD }}
           CHARTREUSE_RELEASE_SIGN_IDENTITY: ${{ secrets.CHARTREUSE_RELEASE_SIGN_IDENTITY }}
-      # `--allow-ad-hoc` only matters on macOS, and only while the
-      # CHARTREUSE_RELEASE_SIGN_IDENTITY secret is unset: the app is then signed
-      # ad-hoc, nothing is notarized, and the disk image is named `-unsigned`.
-      # Once the identity is set, missing notarization secrets fail the job.
+      # `--allow-ad-hoc` matters on macOS while the CHARTREUSE_RELEASE_SIGN_IDENTITY
+      # secret is unset (the app is then signed ad-hoc, nothing is notarized,
+      # and the disk image is named `-unsigned`; once the identity is set,
+      # missing notarization secrets fail the job), and on Windows while
+      # CHARTREUSE_WINDOWS_SIGN_PFX_BASE64 is unset (nothing is signed and the
+      # names end in `-unsigned`). Each job ignores the other's secrets.
       - run: cargo xtask release --allow-ad-hoc
         env:
           CHARTREUSE_RELEASE_SIGN_IDENTITY: ${{ secrets.CHARTREUSE_RELEASE_SIGN_IDENTITY }}
           CHARTREUSE_NOTARY_KEY: ${{ secrets.CHARTREUSE_NOTARY_KEY }}
           CHARTREUSE_NOTARY_KEY_ID: ${{ secrets.CHARTREUSE_NOTARY_KEY_ID }}
           CHARTREUSE_NOTARY_ISSUER: ${{ secrets.CHARTREUSE_NOTARY_ISSUER }}
+          CHARTREUSE_WINDOWS_SIGN_PFX_BASE64: ${{ secrets.CHARTREUSE_WINDOWS_SIGN_PFX_BASE64 }}
+          CHARTREUSE_WINDOWS_SIGN_PFX_PASSWORD: ${{ secrets.CHARTREUSE_WINDOWS_SIGN_PFX_PASSWORD }}
+          CHARTREUSE_WINDOWS_SIGN_TIMESTAMP_URL: ${{ secrets.CHARTREUSE_WINDOWS_SIGN_TIMESTAMP_URL }}
       - uses: actions/upload-artifact@v4
         with:
           name: chartreuse-${{ matrix.name }}

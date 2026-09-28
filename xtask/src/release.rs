@@ -14,7 +14,7 @@
 //!
 //! Archives are named `Chartreuse-<version>-<os>-<arch>` (the arch is
 //! `universal` on macOS), with `-unsigned` appended for an ad-hoc signed macOS
-//! app.
+//! app or an unsigned Windows executable.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -58,7 +58,7 @@ pub fn dist_dir() -> PathBuf {
     target_dir().join("dist")
 }
 
-/// `--allow-ad-hoc` applies to macOS, the only platform that signs so far.
+/// `--allow-ad-hoc` applies to the platforms that sign: macOS and Windows.
 pub fn release(allow_ad_hoc: bool) -> Result {
     let os = std::env::consts::OS;
     let extension = archive_extension(os)?;
@@ -71,7 +71,7 @@ pub fn release(allow_ad_hoc: bool) -> Result {
 
     let artifacts = match os {
         "macos" => vec![macos_release::release(allow_ad_hoc, &dist, extension)?],
-        "windows" => windows_release::release(&dist, extension)?,
+        "windows" => windows_release::release(allow_ad_hoc, &dist, extension)?,
         _ => linux_release::release(&dist, extension)?,
     };
     for artifact in artifacts {

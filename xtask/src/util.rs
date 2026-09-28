@@ -101,6 +101,36 @@ pub fn run(command: &mut Command) -> Result {
     }
 }
 
+/// [`run`], printing the command with every one of `secrets` (such as a
+/// password among its arguments, in each form it is written in) masked.
+pub fn run_redacted(command: &mut Command, secrets: &[impl AsRef<str>]) -> Result {
+    let described = redact(&describe(command), secrets);
+    eprintln!("$ {described}");
+    let status = command
+        .status()
+        .context(|| format!("could not run {described}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(Error(format!("{described} failed ({status})")))
+    }
+}
+
+/// `text` with every occurrence of each of `secrets` masked. The longest go
+/// first, so a secret holding another (a password, and the password escaped)
+/// is masked whole.
+fn redact(text: &str, secrets: &[impl AsRef<str>]) -> String {
+    let mut secrets: Vec<&str> = secrets
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|secret| !secret.is_empty())
+        .collect();
+    secrets.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
+    secrets
+        .into_iter()
+        .fold(text.to_owned(), |text, secret| text.replace(secret, "***"))
+}
+
 /// Runs a command and captures its output, failing if it does not succeed.
 pub fn capture(command: &mut Command) -> Result<Output> {
     let output = command
@@ -245,5 +275,16 @@ mod tests {
             let error = decode_base64("SOME_SECRET", bad).unwrap_err();
             assert!(error.0.contains("SOME_SECRET"), "{bad}: {error}");
         }
+    }
+
+    #[test]
+    fn a_redacted_command_never_shows_the_secrets() {
+        let mut command = Command::new("signtool");
+        command.args(["sign", "/p", "hunter 2", "/f", "a.pfx"]);
+        let shown = redact(&describe(&command), &["hunter 2"]);
+        assert_eq!(shown, "signtool sign /p '***' /f a.pfx");
+        assert_eq!(redact("no secrets", &[""]), "no secrets");
+        // A secret holding another is masked whole, whichever is given first.
+        assert_eq!(redact("/p a$ /S=a$$", &["a$", "a$$"]), "/p *** /S=***");
     }
 }

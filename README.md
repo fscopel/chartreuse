@@ -285,7 +285,7 @@ Everything beyond `cargo build` is a `cargo xtask` command, and CI runs nothing 
 | `cargo xtask bundle` | Signed `target/debug/Chartreuse Dev.app` (macOS) |
 | `cargo xtask run` | `bundle`, then launch it through LaunchServices. `--fake` uses the synthetic platform backend |
 | `cargo xtask dev-cert` | Once per machine (macOS): create the self-signed development signing identity that `bundle` uses when `CHARTREUSE_SIGN_IDENTITY` is unset |
-| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). `--allow-ad-hoc`: when that variable is unset, sign the app ad-hoc and skip signing the disk image and notarization; the name ends in `-unsigned`. Windows (`.zip`) and Linux (`.tar.gz`): the executable with `LICENSE` and `README.md`. |
+| `cargo xtask release` | Release build for the host platform, archived into `target/dist/` (emptied first) as `Chartreuse-<version>-<os>-<arch>`. macOS: a disk image (`.dmg`) of a universal (Apple silicon and Intel) `Chartreuse.app`, signed with `CHARTREUSE_RELEASE_SIGN_IDENTITY` (a Developer ID Application identity), notarized, stapled, and verified; see [From a developer machine](#from-a-developer-machine-macos). Windows (`.zip`): the executable, with the app icon embedded, signed with `signtool` and verified; see [Windows signing](#windows-signing). Linux (`.tar.gz`): the executable with the app icon. Both with `LICENSE` and `README.md`. `--allow-ad-hoc`: when no signing identity (macOS) or certificate (Windows) is set, sign the app ad-hoc (macOS) and skip signing the disk image and notarization, or sign nothing (Windows); the names end in `-unsigned`. |
 | `cargo xtask ci-keychain` | CI (macOS): import the Developer ID identity from `CHARTREUSE_SIGN_P12_BASE64` (a base64-encoded `.p12`) and `CHARTREUSE_SIGN_P12_PASSWORD` into a temporary keychain that `codesign` uses without prompting, and print it. `--skip-if-unset` succeeds without doing anything when `CHARTREUSE_SIGN_P12_BASE64` is unset. Remove the keychain afterwards with the `security delete-keychain` command it prints (GitHub-hosted runners are discarded anyway). |
 | `cargo xtask upload-release <tag>` | Attach every file in `target/dist/` to the GitHub release `<tag>` with the [GitHub CLI](https://cli.github.com) (`gh`), replacing assets of the same name. The tag must be `v<version>` for the `Cargo.toml` version, and every file must be named for that version. Needs `GH_TOKEN` (or `gh auth login`), and `GH_REPO=owner/repo` outside a git checkout. |
 
@@ -312,7 +312,10 @@ GitHub Actions builds every platform and attaches the archives to the release
      exist it is `Chartreuse-<version>-macos-universal-unsigned.dmg`, **ad-hoc
      signed** and not notarized: Gatekeeper blocks it on first launch; allow it under
      *System Settings → Privacy & Security → Open Anyway*.
-   - `Chartreuse-<version>-windows-x86_64.zip`
+   - `Chartreuse-<version>-windows-x86_64.zip`, signed; until the
+     [signing secrets](#release-signing-secrets) exist,
+     `Chartreuse-<version>-windows-x86_64-unsigned.zip`, which SmartScreen warns about
+     on first run
    - `Chartreuse-<version>-linux-x86_64.tar.gz`
 
 A tag that does not match the `Cargo.toml` version fails the upload, naming both.
@@ -328,7 +331,8 @@ v<version>` on each platform (on macOS, set up signing first:
 The macOS job signs and notarizes once these repository secrets exist (*Settings →
 Secrets and variables → Actions*). Without `CHARTREUSE_RELEASE_SIGN_IDENTITY` it
 builds the `-unsigned` disk image; with it, a missing notarization secret fails the
-job rather than publishing an app Gatekeeper rejects.
+job rather than publishing an app Gatekeeper rejects. The Windows job signs once
+`CHARTREUSE_WINDOWS_SIGN_PFX_BASE64` exists, and builds `-unsigned` files until then.
 
 | Secret | Value |
 |---|---|
@@ -338,6 +342,9 @@ job rather than publishing an app Gatekeeper rejects.
 | `CHARTREUSE_NOTARY_KEY` | The contents of an App Store Connect API key file (`AuthKey_<key ID>.p8`: App Store Connect → *Users and Access → Integrations → App Store Connect API*, role *Developer*) |
 | `CHARTREUSE_NOTARY_KEY_ID` | That key's ID |
 | `CHARTREUSE_NOTARY_ISSUER` | The issuer ID shown above the list of keys |
+| `CHARTREUSE_WINDOWS_SIGN_PFX_BASE64` | A code signing certificate and its private key as a `.pfx`, base64-encoded (`base64 -w0 certificate.pfx`; PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("certificate.pfx"))`). See [Windows signing](#windows-signing) |
+| `CHARTREUSE_WINDOWS_SIGN_PFX_PASSWORD` | That `.pfx`'s password |
+| `CHARTREUSE_WINDOWS_SIGN_TIMESTAMP_URL` | Optional: an RFC 3161 timestamp server, if not DigiCert's `http://timestamp.digicert.com` |
 
 ### From a developer machine (macOS)
 
@@ -385,6 +392,24 @@ Without a certificate, `cargo xtask release --allow-ad-hoc` builds the same disk
 from an ad-hoc signed app, unsigned and not notarized, as
 `Chartreuse-<version>-macos-universal-unsigned.dmg`: useful for testing the packaging,
 not for distribution.
+
+### Windows signing
+
+`cargo xtask release` on Windows signs the executable with `signtool` from the newest
+installed Windows SDK (or the one on `PATH`), using a SHA-256 digest and an RFC 3161
+timestamp, then checks it with `signtool verify /pa` (a trusted chain, so a
+self-signed test certificate fails the release). It takes the certificate from one of:
+
+- `CHARTREUSE_WINDOWS_SIGN_CERT_SHA1`: the thumbprint of a code signing certificate
+  in your personal certificate store (*certmgr.msc → Personal → Certificates →
+  Details → Thumbprint*), for a hardware token or a signing service whose key
+  storage provider puts the certificate there.
+- `CHARTREUSE_WINDOWS_SIGN_PFX_BASE64` and `CHARTREUSE_WINDOWS_SIGN_PFX_PASSWORD`: a
+  base64-encoded `.pfx` and its password, as in CI.
+
+Setting both, or half of the second, fails the release before anything is built. With
+neither, `--allow-ad-hoc` builds unsigned `-unsigned` files; without it the release
+fails, naming the variables.
 
 ## Repository layout
 
