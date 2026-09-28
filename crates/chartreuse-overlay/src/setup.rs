@@ -48,6 +48,10 @@
 //! bounds, so a window that covers its display maps the pointer correctly
 //! whatever scale factor iced renders it at.
 //!
+//! On Wayland, where no client can place its windows, overlays go full screen
+//! instead ([`OverlayPlacement::Fullscreen`]) on the output the compositor
+//! chooses, which covers the display of a single-output desktop only.
+//!
 //! # Showing
 //!
 //! Overlays open hidden, so they never appear as ordinary windows below the
@@ -62,7 +66,7 @@ use std::sync::Arc;
 use chartreuse_core::display::{DisplayId, DisplayInfo, DisplayLayout};
 use chartreuse_core::geometry::LogicalRect;
 use chartreuse_core::Result;
-use chartreuse_platform::{NativeWindow, OverlayWindowStyle};
+use chartreuse_platform::{NativeWindow, OverlayPlacement, OverlayWindowStyle};
 use iced::{window, Point, Size, Task};
 
 /// The overlay windows that are open, and the display each one covers.
@@ -139,8 +143,9 @@ pub fn open(
 ) -> (OverlayWindows, Task<Styled>) {
     let mut windows = Vec::with_capacity(layout.displays().len());
     let mut tasks = Vec::with_capacity(layout.displays().len());
+    let placement = style.placement();
     for display in layout.displays() {
-        let (id, opened) = open_window(settings(display));
+        let (id, opened) = open_window(settings(display, placement));
         windows.push((id, display.id));
         let style = Arc::clone(style);
         let display = display.clone();
@@ -150,33 +155,46 @@ pub fn open(
 }
 
 /// Styles the open window `id`, which covers `display`, with `style` on the
-/// main thread, then shows it.
+/// main thread, then shows it in the style's [`OverlayPlacement`].
 pub fn apply_style(
     id: window::Id,
     style: Arc<dyn OverlayWindowStyle>,
     display: DisplayInfo,
 ) -> Task<Styled> {
+    let mode = shown_mode(style.placement());
     window::run(id, move |window| {
         NativeWindow::from_window(window).and_then(|native| style.apply(native, &display))
     })
-    .then(move |result| {
-        window::set_mode(id, window::Mode::Windowed)
-            .chain(Task::done(Styled { window: id, result }))
-    })
+    .then(move |result| window::set_mode(id, mode).chain(Task::done(Styled { window: id, result })))
+}
+
+/// The mode an overlay is shown in: showing a full-screen overlay as
+/// `Windowed` would take it out of full screen.
+#[must_use]
+pub const fn shown_mode(placement: OverlayPlacement) -> window::Mode {
+    match placement {
+        OverlayPlacement::OverDisplay => window::Mode::Windowed,
+        OverlayPlacement::Fullscreen => window::Mode::Fullscreen,
+    }
 }
 
 /// The settings of the overlay window for `display`: borderless, fixed, placed
-/// over the display's logical bounds, always on top (the platform style raises
-/// it further), hidden until styled, and not quitting the app when closed.
+/// as `placement` says (over the display's logical bounds, or full screen),
+/// always on top (the platform style raises it further), hidden until styled,
+/// and not quitting the app when closed.
 ///
 /// Opaque: overlays draw the frozen capture over the whole window, so there is
 /// nothing behind them to show through.
 #[must_use]
-pub fn settings(display: &DisplayInfo) -> window::Settings {
+pub fn settings(display: &DisplayInfo, placement: OverlayPlacement) -> window::Settings {
     let bounds = &display.logical_bounds;
     window::Settings {
         size: size(bounds),
-        position: position(bounds),
+        position: match placement {
+            OverlayPlacement::OverDisplay => position(bounds),
+            OverlayPlacement::Fullscreen => window::Position::Default,
+        },
+        fullscreen: placement == OverlayPlacement::Fullscreen,
         visible: false,
         resizable: false,
         closeable: false,
@@ -248,7 +266,7 @@ mod tests {
     fn each_overlay_covers_exactly_its_display_including_negative_origins() {
         for display in layout().displays() {
             assert_eq!(
-                covered(&settings(display)),
+                covered(&settings(display, OverlayPlacement::OverDisplay)),
                 display.logical_bounds,
                 "{}",
                 display.name
@@ -263,8 +281,34 @@ mod tests {
 
     #[test]
     fn overlay_settings_start_hidden() {
-        assert!(!settings(&layout().displays()[0]).visible);
+        for placement in [OverlayPlacement::OverDisplay, OverlayPlacement::Fullscreen] {
+            assert!(
+                !settings(&layout().displays()[0], placement).visible,
+                "{placement:?}"
+            );
+        }
     }
+
+    #[test]
+    fn full_screen_overlays_open_and_are_shown_full_screen() {
+        let layout = layout();
+        let display = &layout.displays()[1];
+        let full_screen = settings(display, OverlayPlacement::Fullscreen);
+        assert!(full_screen.fullscreen);
+        assert!(matches!(full_screen.position, window::Position::Default));
+        // Showing it as `Windowed` would leave full screen.
+        assert_eq!(
+            shown_mode(OverlayPlacement::Fullscreen),
+            window::Mode::Fullscreen
+        );
+
+        assert!(!settings(display, OverlayPlacement::OverDisplay).fullscreen);
+        assert_eq!(
+            shown_mode(OverlayPlacement::OverDisplay),
+            window::Mode::Windowed
+        );
+    }
+
     #[test]
     fn open_opens_one_window_per_display_and_maps_it_back() {
         let layout = layout();

@@ -99,7 +99,7 @@ pub use displays::Displays;
 pub use event::{EventReceiver, EventSender, Registration};
 pub use hotkeys::{HotkeyBinding, HotkeyEvent, HotkeyRegistration, Hotkeys};
 pub use launch_at_login::LaunchAtLogin;
-pub use overlay_style::{NativeWindow, OverlayWindowStyle};
+pub use overlay_style::{NativeWindow, OverlayPlacement, OverlayWindowStyle};
 pub use permissions::Permissions;
 pub use status_item::{MenuAction, MenuEntry, StatusItem, StatusItemHandle, MENU};
 pub use window_list::WindowList;

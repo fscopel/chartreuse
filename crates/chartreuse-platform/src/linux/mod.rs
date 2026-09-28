@@ -23,9 +23,9 @@
 //!   misplaced.
 //! - X11 window capture: without a compositing manager, a window is read
 //!   from the screen, so whatever covers it is captured too.
-//! - Wayland overlays: winit offers no layer-shell, so the platform crate
-//!   cannot put overlays above other windows (see [`wayland`]'s overlay
-//!   style); they open as ordinary windows.
+//! - Wayland overlays: winit offers no layer-shell, so overlays are
+//!   full-screen windows (see [`wayland`]'s overlay style) on the output the
+//!   compositor chooses, which covers single-output desktops only.
 //! - Wayland windows: clients cannot list other clients' windows, so window
 //!   selection fails; window capture is the Screenshot portal's interactive
 //!   picker, which the app's window mode (listing windows first) does not

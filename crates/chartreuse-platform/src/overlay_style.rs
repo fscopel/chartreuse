@@ -34,8 +34,27 @@ impl<'a> NativeWindow<'a> {
 /// `Send + Sync` because the app calls it from inside the `Send` callback of
 /// `iced::window::run`, which executes on the main thread.
 pub trait OverlayWindowStyle: Send + Sync {
+    /// How overlay windows are placed on this platform. Every platform but
+    /// Wayland places them over their displays (the default).
+    fn placement(&self) -> OverlayPlacement {
+        OverlayPlacement::OverDisplay
+    }
+
     /// Applies the overlay style to the window that covers `display`, and
     /// corrects its placement where iced's logical position can miss the
     /// display (Windows with mixed DPI). **Main thread only.**
     fn apply(&self, window: NativeWindow<'_>, display: &DisplayInfo) -> Result<()>;
+}
+
+/// How the app places overlay windows ([`OverlayWindowStyle::placement`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayPlacement {
+    /// A window over the display's bounds, which iced places at the display's
+    /// logical position and the style may correct.
+    OverDisplay,
+    /// A full-screen window, on the output the compositor chooses: Wayland
+    /// lets clients neither position windows nor, through winit, pick the
+    /// output of a full-screen one. So overlays can cover a desktop of one
+    /// display only.
+    Fullscreen,
 }
