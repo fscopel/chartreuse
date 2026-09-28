@@ -19,6 +19,7 @@
 //! single-output desktops only. Until the overlay setup does that, `apply`
 //! reports the gap and the overlay opens as an ordinary window.
 
+use chartreuse_core::display::DisplayInfo;
 use chartreuse_core::{Error, Result};
 
 use crate::overlay_style::{NativeWindow, OverlayWindowStyle};
@@ -34,7 +35,7 @@ impl WaylandOverlayStyle {
 }
 
 impl OverlayWindowStyle for WaylandOverlayStyle {
-    fn apply(&self, _window: NativeWindow<'_>) -> Result<()> {
+    fn apply(&self, _window: NativeWindow<'_>, _display: &DisplayInfo) -> Result<()> {
         Err(Error::Unsupported(
             "overlay windows above other windows on Wayland (winit offers no layer-shell)",
         ))

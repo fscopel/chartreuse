@@ -127,15 +127,21 @@ pub fn open(
         let (id, opened) = open_window(settings(display));
         windows.push((id, display.id));
         let style = Arc::clone(style);
-        tasks.push(opened.then(move |id| apply_style(id, Arc::clone(&style))));
+        let display = display.clone();
+        tasks.push(opened.then(move |id| apply_style(id, Arc::clone(&style), display.clone())));
     }
     (OverlayWindows { windows }, Task::batch(tasks))
 }
 
-/// Styles the open window `id` with `style` on the main thread, then shows it.
-pub fn apply_style(id: window::Id, style: Arc<dyn OverlayWindowStyle>) -> Task<Styled> {
+/// Styles the open window `id`, which covers `display`, with `style` on the
+/// main thread, then shows it.
+pub fn apply_style(
+    id: window::Id,
+    style: Arc<dyn OverlayWindowStyle>,
+    display: DisplayInfo,
+) -> Task<Styled> {
     window::run(id, move |window| {
-        NativeWindow::from_window(window).and_then(|native| style.apply(native))
+        NativeWindow::from_window(window).and_then(|native| style.apply(native, &display))
     })
     .then(move |result| {
         window::set_mode(id, window::Mode::Windowed)

@@ -20,6 +20,7 @@ use ::windows::Win32::UI::WindowsAndMessaging::{
     SWP_NOSIZE, SW_HIDE, SW_SHOW, WDA_EXCLUDEFROMCAPTURE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     WS_EX_TOPMOST,
 };
+use chartreuse_core::display::DisplayInfo;
 use chartreuse_core::{Error, Result};
 use raw_window_handle::RawWindowHandle;
 
@@ -37,7 +38,7 @@ impl WindowsOverlayStyle {
 }
 
 impl OverlayWindowStyle for WindowsOverlayStyle {
-    fn apply(&self, window: NativeWindow<'_>) -> Result<()> {
+    fn apply(&self, window: NativeWindow<'_>, _display: &DisplayInfo) -> Result<()> {
         let RawWindowHandle::Win32(handle) = window.window.as_raw() else {
             return Err(Error::Platform("the overlay is not a Win32 window".into()));
         };

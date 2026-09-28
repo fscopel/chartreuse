@@ -1,5 +1,6 @@
 //! Native styling for selection overlay windows.
 
+use chartreuse_core::display::DisplayInfo;
 use chartreuse_core::error::Error;
 use chartreuse_core::Result;
 use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasWindowHandle, WindowHandle};
@@ -33,6 +34,7 @@ impl<'a> NativeWindow<'a> {
 /// `Send + Sync` because the app calls it from inside the `Send` callback of
 /// `iced::window::run`, which executes on the main thread.
 pub trait OverlayWindowStyle: Send + Sync {
-    /// Applies the overlay style. **Main thread only.**
-    fn apply(&self, window: NativeWindow<'_>) -> Result<()>;
+    /// Applies the overlay style to the window that covers `display`. **Main
+    /// thread only.**
+    fn apply(&self, window: NativeWindow<'_>, display: &DisplayInfo) -> Result<()>;
 }

@@ -13,6 +13,7 @@
 
 use std::thread;
 
+use chartreuse_core::display::DisplayInfo;
 use chartreuse_core::{Error, Result};
 use raw_window_handle::RawWindowHandle;
 use x11rb::connection::Connection as _;
@@ -37,7 +38,7 @@ impl X11OverlayStyle {
 }
 
 impl OverlayWindowStyle for X11OverlayStyle {
-    fn apply(&self, native: NativeWindow<'_>) -> Result<()> {
+    fn apply(&self, native: NativeWindow<'_>, _display: &DisplayInfo) -> Result<()> {
         let window = match native.window.as_raw() {
             RawWindowHandle::Xlib(handle) => Window::try_from(handle.window)
                 .map_err(|_| Error::Platform(format!("invalid X11 window {}", handle.window)))?,

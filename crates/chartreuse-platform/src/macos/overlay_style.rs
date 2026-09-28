@@ -8,6 +8,7 @@
 //! Escape reaches it even though Chartreuse is an accessory app that is usually
 //! inactive when a capture starts.
 
+use chartreuse_core::display::DisplayInfo;
 use chartreuse_core::{Error, Result};
 use objc2::rc::Retained;
 use objc2::MainThreadMarker;
@@ -31,7 +32,7 @@ impl MacosOverlayStyle {
 }
 
 impl OverlayWindowStyle for MacosOverlayStyle {
-    fn apply(&self, window: NativeWindow<'_>) -> Result<()> {
+    fn apply(&self, window: NativeWindow<'_>, _display: &DisplayInfo) -> Result<()> {
         let mtm = MainThreadMarker::new().ok_or_else(|| {
             Error::Platform("overlay windows must be styled on the main thread".into())
         })?;
