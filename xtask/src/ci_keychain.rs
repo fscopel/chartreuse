@@ -19,7 +19,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use crate::macos_release::RELEASE_IDENTITY_ENV;
-use crate::util::{capture, tool, Context, Error, PrivateDir, Result, Step};
+use crate::util::{capture, decode_base64, tool, Context, Error, PrivateDir, Result, Step};
 
 pub const P12_ENV: &str = "CHARTREUSE_SIGN_P12_BASE64";
 pub const P12_PASSWORD_ENV: &str = "CHARTREUSE_SIGN_P12_PASSWORD";
@@ -58,44 +58,6 @@ pub fn secrets(
              identity.p12`), and {P12_PASSWORD_ENV} to its password."
         ))),
     }
-}
-
-/// Decodes standard base64, ignoring whitespace (so line-wrapped output from
-/// `base64` decodes as-is).
-pub fn decode_base64(text: &str) -> Result<Vec<u8>> {
-    let invalid = |why: &str| Error(format!("{P12_ENV} is not valid base64: {why}"));
-    let mut bytes = Vec::with_capacity(text.len() / 4 * 3);
-    let (mut buffer, mut bits, mut digits, mut padding) = (0_u32, 0_u32, 0_usize, 0_usize);
-    for c in text.bytes().filter(|c| !c.is_ascii_whitespace()) {
-        let value = match c {
-            b'A'..=b'Z' => c - b'A',
-            b'a'..=b'z' => c - b'a' + 26,
-            b'0'..=b'9' => c - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            b'=' => {
-                padding += 1;
-                continue;
-            }
-            _ => return Err(invalid(&format!("unexpected {:?}", char::from(c)))),
-        };
-        if padding > 0 {
-            return Err(invalid("data after the padding"));
-        }
-        digits += 1;
-        buffer = (buffer << 6) | u32::from(value);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            bytes.push((buffer >> bits) as u8);
-            buffer &= (1 << bits) - 1;
-        }
-    }
-    let padded = padding == 0 || (digits + padding) % 4 == 0;
-    if digits % 4 == 1 || padding > 2 || !padded {
-        return Err(invalid("truncated"));
-    }
-    Ok(bytes)
 }
 
 /// The keychains on the user's search list, from `security list-keychains -d
@@ -241,7 +203,7 @@ pub fn ci_keychain(skip_if_unset: bool) -> Result {
     if !cfg!(target_os = "macos") {
         return Err(Error("ci-keychain is only needed on macOS".into()));
     }
-    let p12_bytes = decode_base64(&p12_base64)?;
+    let p12_bytes = decode_base64(P12_ENV, &p12_base64)?;
     let runner_temp = std::env::var_os("RUNNER_TEMP").map(PathBuf::from);
     let keychain = keychain_path(runner_temp.as_deref(), &std::env::temp_dir());
 
@@ -341,24 +303,6 @@ mod tests {
             keychain_path(None, temp),
             Path::new("/var/folders/x/T/chartreuse-release-signing.keychain-db")
         );
-    }
-
-    #[test]
-    fn base64_decodes_wrapped_and_padded_input() {
-        assert_eq!(decode_base64("TWFu").unwrap(), b"Man");
-        assert_eq!(decode_base64("TWE=").unwrap(), b"Ma");
-        assert_eq!(decode_base64("TQ==").unwrap(), b"M");
-        assert_eq!(decode_base64("TQ").unwrap(), b"M");
-        assert_eq!(decode_base64("TW\nFu\r\nTQ==\n").unwrap(), b"ManM");
-        assert_eq!(decode_base64("+/+/").unwrap(), [0xfb, 0xff, 0xbf]);
-    }
-
-    #[test]
-    fn malformed_base64_is_rejected() {
-        for bad in ["T", "TWFuT", "TQ=x", "TQ===", "TW-u", "TQ="] {
-            let error = decode_base64(bad).unwrap_err();
-            assert!(error.0.contains(P12_ENV), "{bad}: {error}");
-        }
     }
 
     #[test]

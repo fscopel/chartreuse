@@ -184,3 +184,66 @@ impl Drop for PrivateDir {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+
+/// Decodes standard base64 read from the environment variable `variable`
+/// (named in errors), ignoring whitespace (so line-wrapped output from
+/// `base64` decodes as-is).
+pub fn decode_base64(variable: &str, text: &str) -> Result<Vec<u8>> {
+    let invalid = |why: &str| Error(format!("{variable} is not valid base64: {why}"));
+    let mut bytes = Vec::with_capacity(text.len() / 4 * 3);
+    let (mut buffer, mut bits, mut digits, mut padding) = (0_u32, 0_u32, 0_usize, 0_usize);
+    for c in text.bytes().filter(|c| !c.is_ascii_whitespace()) {
+        let value = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => {
+                padding += 1;
+                continue;
+            }
+            _ => return Err(invalid(&format!("unexpected {:?}", char::from(c)))),
+        };
+        if padding > 0 {
+            return Err(invalid("data after the padding"));
+        }
+        digits += 1;
+        buffer = (buffer << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+    let padded = padding == 0 || (digits + padding) % 4 == 0;
+    if digits % 4 == 1 || padding > 2 || !padded {
+        return Err(invalid("truncated"));
+    }
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_decodes_wrapped_and_padded_input() {
+        let decode = |text| decode_base64("VAR", text).unwrap();
+        assert_eq!(decode("TWFu"), b"Man");
+        assert_eq!(decode("TWE="), b"Ma");
+        assert_eq!(decode("TQ=="), b"M");
+        assert_eq!(decode("TQ"), b"M");
+        assert_eq!(decode("TW\nFu\r\nTQ==\n"), b"ManM");
+        assert_eq!(decode("+/+/"), [0xfb, 0xff, 0xbf]);
+    }
+
+    #[test]
+    fn malformed_base64_is_rejected_naming_the_variable() {
+        for bad in ["T", "TWFuT", "TQ=x", "TQ===", "TW-u", "TQ="] {
+            let error = decode_base64("SOME_SECRET", bad).unwrap_err();
+            assert!(error.0.contains("SOME_SECRET"), "{bad}: {error}");
+        }
+    }
+}
