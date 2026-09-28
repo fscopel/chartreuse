@@ -9,7 +9,7 @@ use iced::widget::image::FilterMethod;
 use iced::{Color, Pixels, Point as CanvasPoint, Rectangle, Vector as CanvasVector};
 use tiny_skia::Transform;
 
-use super::Viewport;
+use super::{Obscured, Viewport};
 use crate::flatten;
 use crate::font;
 use crate::model::{
@@ -53,6 +53,9 @@ pub struct Raster {
 /// Draws `shape` in `style`, mapped onto the canvas by `viewport`, following
 /// the rules in the [canvas docs](super#drawing), with its raster parts as
 /// `raster` says. `number` is a step marker's number.
+///
+/// Draws nothing for a blur region, whose pixels depend on what is beneath
+/// it; see [`obscured`].
 pub fn shape(
     frame: &mut Frame,
     viewport: &Viewport,
@@ -140,6 +143,7 @@ pub fn shape(
                 ));
             }
         }
+        Shape::Blur(_) => {}
         Shape::Text(text) => frame.fill_text(canvas_text(
             &text.content,
             viewport.to_canvas(text.position),
@@ -147,6 +151,31 @@ pub fn shape(
             viewport.scale(),
         )),
     }
+}
+
+/// A blur region's pixels (see the [canvas docs](super#drawing)), on a fill
+/// of `backdrop`.
+pub fn obscured(frame: &mut Frame, viewport: &Viewport, obscured: &Obscured, backdrop: Color) {
+    let pixels = obscured.pixels;
+    let rect = viewport.to_canvas_rect(Rect::new(
+        Point::new(pixels.origin.x as f32, pixels.origin.y as f32),
+        Size::new(pixels.size.width as f32, pixels.size.height as f32),
+    ));
+    frame.fill_rectangle(rect.position(), rect.size(), backdrop);
+    frame.draw_image(
+        Rectangle {
+            x: rect.x + IMAGE_NUDGE,
+            y: rect.y + IMAGE_NUDGE,
+            ..rect
+        },
+        canvas::Image::new(obscured.image.clone())
+            .filter_method(if viewport.scale() >= 1.0 {
+                FilterMethod::Nearest
+            } else {
+                FilterMethod::Linear
+            })
+            .snap(true),
+    );
 }
 
 /// Annotation text as canvas text at canvas position `position`, `scale`

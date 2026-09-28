@@ -23,9 +23,10 @@
 //!
 //! The base and annotation layers keep their geometry and redraw only when
 //! what they show changes: the image, the view, the canvas size, the theme,
-//! the window's scale factor (for highlighters), a run's annotations, or a
-//! preview of one of them. A pointer move in a gesture that changes nothing
-//! else redraws only the overlay.
+//! the window's scale factor (for highlighters), a run's annotations, a
+//! preview of one of them, or the pixels of a blur region in the run. A
+//! pointer move in a gesture that changes nothing else redraws only the
+//! overlay.
 //!
 //! The zoom and pan are a [`View`], mapped to canvas coordinates by a
 //! [`Viewport`].
@@ -63,6 +64,15 @@
 //!   color, then its number ([`Document::step_number`]) as canvas text like
 //!   annotation text below, in [`StepMarker::number_color`], its layout box
 //!   at [`StepMarker::label_origin`] for the number's [`font::measure`].
+//! - A blur region is a raster image of the pixels flatten gives it
+//!   (`flatten::obscured`, which flattens just the part of the document
+//!   beneath it that it depends on, matching the export to within one unit
+//!   per channel), at image resolution over
+//!   [`BlurRegion::pixels`], filtered like the base image, on a fill of the
+//!   backdrop so a translucent result hides what the canvas drew beneath it.
+//!   The editor keeps each region's image until the region, its
+//!   [`BlurMode`], or an annotation beneath it that can reach it changes (as
+//!   drawn, so a preview of those updates it too).
 //! - Text is iced canvas text: shaped by cosmic-text and rasterized by the
 //!   renderer's glyph cache, in [`font::FONT`], at `font_size` with a line
 //!   height of `font_size × Text::LINE_HEIGHT` (both × `scale`), the layout
@@ -84,7 +94,10 @@
 //! [`StepMarker::number_color`]: crate::model::StepMarker::number_color
 //! [`StepMarker::label_origin`]: crate::model::StepMarker::label_origin
 //! [`Document::step_number`]: crate::model::Document::step_number
+//! [`BlurRegion::pixels`]: crate::model::BlurRegion::pixels
+//! [`BlurMode`]: crate::model::BlurMode
 
+mod regions;
 mod render;
 mod viewport;
 
@@ -103,10 +116,12 @@ use iced::{
 use smol_str::SmolStr;
 
 use crate::editor::Message;
-use crate::model::{Annotation, Shape};
+use crate::flatten::Drawn;
+use crate::model::{Annotation, AnnotationId, BlurRegion, Shape, Style};
 use crate::tools::{self, Preview, TextTarget};
 use crate::Editor;
 
+pub(crate) use regions::{Obscured, Rasters};
 pub use render::color;
 pub use viewport::{View, Viewport, Zoom, MARGIN, MAX_SCALE, MIN_SCALE, ZOOM_STEP};
 
@@ -178,7 +193,7 @@ pub(crate) fn view(editor: &Editor) -> Element<'_, Message> {
 /// can draw in z-order: iced draws a layer's meshes, then its images, then
 /// its text, so a run never has an annotation drawing an earlier kind of
 /// [`Primitive`] than the one below it last drew (a shape after text, or
-/// after a highlighter).
+/// after a highlighter or blur region).
 #[must_use]
 pub fn runs(annotations: &[Annotation]) -> Vec<Range<usize>> {
     let mut runs = Vec::new();
@@ -201,7 +216,7 @@ pub fn runs(annotations: &[Annotation]) -> Vec<Range<usize>> {
 pub enum Primitive {
     /// Strokes and fills.
     Mesh,
-    /// Raster images (a highlighter's layer).
+    /// Raster images (a highlighter's layer, a blur region's pixels).
     Image,
     Text,
 }
@@ -218,11 +233,13 @@ impl Primitive {
     }
 
     /// The kind of primitive `shape` draws last (a step marker's disc is a
-    /// mesh, its number text).
+    /// mesh, its number text; a blur region's backdrop is a mesh, its pixels
+    /// an image).
     #[must_use]
     pub const fn last(shape: &Shape) -> Self {
         match shape {
             Shape::Step(_) => Self::Text,
+            Shape::Blur(_) => Self::Image,
             _ => Self::first(shape),
         }
     }
@@ -285,6 +302,11 @@ enum Content<'a> {
         /// The numbers of the run's step markers, which depend on the
         /// markers outside it too.
         numbers: Vec<usize>,
+        /// The pixels of the run's blur regions, which depend on what is
+        /// beneath them too.
+        obscured: Vec<image::Id>,
+        /// Blur regions are drawn on it.
+        backdrop: Color,
     },
 }
 
@@ -305,11 +327,15 @@ impl Content<'_> {
                 annotations,
                 scale_factor,
                 numbers,
+                obscured,
+                backdrop,
             } => Content::Annotations {
                 viewport,
                 annotations: Cow::Owned(annotations.into_owned()),
                 scale_factor,
                 numbers,
+                obscured,
+                backdrop,
             },
         }
     }
@@ -419,24 +445,88 @@ impl Scene<'_> {
         );
     }
 
+    /// Draws `annotations` as displayed while `preview` is in progress;
+    /// `obscured` has the pixels of each one that is a blur region.
     fn draw_annotations(
         &self,
         frame: &mut Frame,
         viewport: &Viewport,
         annotations: &[Annotation],
+        obscured: &[Option<Obscured>],
         preview: &Preview<'_>,
+        backdrop: Color,
     ) {
         let clip = viewport.to_canvas_rect(self.editor.document().bounds());
         let raster = self.raster(frame.size(), clip);
         let document = self.editor.document();
         frame.with_clip(clip, |frame| {
-            for annotation in annotations {
-                if let Some(shape) = displayed(annotation, preview) {
+            for (annotation, obscured) in annotations.iter().zip(obscured) {
+                let Some(shape) = displayed(annotation, preview) else {
+                    continue;
+                };
+                if let Some(obscured) = obscured {
+                    render::obscured(frame, viewport, obscured, backdrop);
+                } else {
                     let number = document.step_number(annotation.id());
                     render::shape(frame, viewport, raster, &shape, &annotation.style, number);
                 }
             }
         });
+    }
+
+    /// The pixels of each of `annotations` (the document's from `start` on)
+    /// that is displayed as a blur region while `preview` is in progress.
+    fn obscured_in(
+        &self,
+        start: usize,
+        annotations: &[Annotation],
+        preview: &Preview<'_>,
+    ) -> Vec<Option<Obscured>> {
+        annotations
+            .iter()
+            .enumerate()
+            .map(
+                |(offset, annotation)| match displayed(annotation, preview)?.as_ref() {
+                    Shape::Blur(region) => self.obscured(
+                        start + offset,
+                        Some(annotation.id()),
+                        region,
+                        &annotation.style,
+                        preview,
+                    ),
+                    _ => None,
+                },
+            )
+            .collect()
+    }
+
+    /// The pixels of blur region `region` in `style` at z-order `index`
+    /// (annotation `id`, or `None` for a new one on top), over the
+    /// annotations below it as displayed while `preview` is in progress.
+    fn obscured(
+        &self,
+        index: usize,
+        id: Option<AnnotationId>,
+        region: &BlurRegion,
+        style: &Style,
+        preview: &Preview<'_>,
+    ) -> Option<Obscured> {
+        let document = self.editor.document();
+        let shown: Vec<_> = document.annotations()[..index]
+            .iter()
+            .filter_map(|annotation| Some((displayed(annotation, preview)?, annotation)))
+            .collect();
+        let below: Vec<_> = shown
+            .iter()
+            .map(|(shape, annotation)| Drawn {
+                shape,
+                style: &annotation.style,
+                number: document.step_number(annotation.id()),
+            })
+            .collect();
+        self.editor
+            .rasters()
+            .get(document, id, region, style.blur, &below)
     }
 
     /// How annotations' raster parts are rendered on a canvas of `size` whose
@@ -451,24 +541,26 @@ impl Scene<'_> {
     }
 
     fn draw_overlay(&self, frame: &mut Frame, theme: &Theme) {
+        let backdrop = backdrop(theme);
         let viewport = self.editor.viewport(frame.size());
         let clip = viewport.to_canvas_rect(self.editor.document().bounds());
         let raster = self.raster(frame.size(), clip);
         let accent = theme.palette().primary;
         let preview = self.editor.active_tool().preview();
         self.draw_selection(frame, &viewport, &preview, accent);
-        match preview {
+        match &preview {
             Preview::None | Preview::Moved(..) | Preview::Reshaped(..) => {}
             Preview::New(shape) => frame.with_clip(clip, |frame| {
-                let number = Some(self.editor.document().next_step_number());
-                render::shape(
-                    frame,
-                    &viewport,
-                    raster,
-                    &shape,
-                    &self.editor.style(),
-                    number,
-                );
+                let style = self.editor.style();
+                if let Shape::Blur(region) = shape {
+                    let top = self.editor.document().annotations().len();
+                    if let Some(obscured) = self.obscured(top, None, region, &style, &preview) {
+                        render::obscured(frame, &viewport, &obscured, backdrop);
+                    }
+                } else {
+                    let number = Some(self.editor.document().next_step_number());
+                    render::shape(frame, &viewport, raster, shape, &style, number);
+                }
             }),
             Preview::Text(edit) => {
                 let style = edit.style();
@@ -602,6 +694,8 @@ impl Program<Message> for Scene<'_> {
                 let document = self.editor.document();
                 let annotations = &document.annotations()[range.clone()];
                 let preview = self.editor.active_tool().preview();
+                let obscured = self.obscured_in(range.start, annotations, &preview);
+                let backdrop = backdrop(theme);
                 let content = annotations
                     .iter()
                     .all(|annotation| unchanged(annotation, &preview))
@@ -613,9 +707,22 @@ impl Program<Message> for Scene<'_> {
                             .iter()
                             .filter_map(|annotation| document.step_number(annotation.id()))
                             .collect(),
+                        obscured: obscured
+                            .iter()
+                            .flatten()
+                            .map(|obscured| obscured.image.id())
+                            .collect(),
+                        backdrop,
                     });
                 state.drawing.draw(renderer, size, content, |frame| {
-                    self.draw_annotations(frame, &viewport, annotations, &preview);
+                    self.draw_annotations(
+                        frame,
+                        &viewport,
+                        annotations,
+                        &obscured,
+                        &preview,
+                        backdrop,
+                    );
                 })
             }
             Layer::Overlay => {
@@ -676,6 +783,12 @@ mod tests {
                 'n' => Shape::Step(crate::model::StepMarker {
                     center: DocPoint::ORIGIN,
                 }),
+                'b' => Shape::Blur(BlurRegion {
+                    rect: crate::model::Rect::from_corners(
+                        DocPoint::ORIGIN,
+                        DocPoint::new(5.0, 5.0),
+                    ),
+                }),
                 _ => Shape::Line(Line {
                     start: DocPoint::ORIGIN,
                     end: DocPoint::new(1.0, 1.0),
@@ -698,6 +811,9 @@ mod tests {
         // Step markers are a mesh then text.
         assert_eq!(runs(document("snt").annotations()), vec![0..3]);
         assert_eq!(runs(document("nsn").annotations()), vec![0..1, 1..3]);
+        // Blur regions are a mesh (their backdrop) then an image.
+        assert_eq!(runs(document("sbht").annotations()), vec![0..4]);
+        assert_eq!(runs(document("bsb").annotations()), vec![0..1, 1..3]);
     }
 
     #[test]
@@ -753,6 +869,8 @@ mod tests {
                 annotations: Cow::Borrowed(annotations),
                 scale_factor: 1.0,
                 numbers: Vec::new(),
+                obscured: Vec::new(),
+                backdrop: Color::BLACK,
             })
         };
         let drawing = Drawing::default();

@@ -1,12 +1,12 @@
 //! Selection handles: the points of a lone selected annotation that can be
 //! dragged to reshape it (a line's or arrow's ends, the corners of a
-//! rectangle or of an ellipse's bounding box). Text has none; its size
-//! follows its font size.
+//! rectangle, a blur region, or an ellipse's bounding box). Text has none;
+//! its size follows its font size.
 
 use super::line::snap_45;
 use super::rectangle::square;
 use crate::model::{
-    AnnotationId, Command, Document, Ellipse, Point, Rect, Rectangle, Shape, Vector,
+    AnnotationId, BlurRegion, Command, Document, Ellipse, Point, Rect, Rectangle, Shape, Vector,
 };
 
 /// A handle's drawn size (a square), in canvas pixels.
@@ -24,7 +24,7 @@ pub enum Handle {
     Start,
     /// A line's or arrow's `end` (an arrow's tip).
     End,
-    /// A corner of a rectangle or of an ellipse's bounding box, as an index
+    /// A corner of a rectangle, a blur region, or an ellipse's bounding box, as an index
     /// into [`Rect::corners`] (clockwise from the top-left).
     Corner(usize),
 }
@@ -35,7 +35,9 @@ pub fn handles(shape: &Shape) -> Vec<(Handle, Point)> {
     match shape {
         Shape::Line(line) => vec![(Handle::Start, line.start), (Handle::End, line.end)],
         Shape::Arrow(arrow) => vec![(Handle::Start, arrow.start), (Handle::End, arrow.end)],
-        Shape::Rectangle(Rectangle { rect }) | Shape::Ellipse(Ellipse { rect }) => corners(*rect),
+        Shape::Rectangle(Rectangle { rect })
+        | Shape::Ellipse(Ellipse { rect })
+        | Shape::Blur(BlurRegion { rect }) => corners(*rect),
         Shape::Pen(_) | Shape::Highlighter(_) | Shape::Step(_) | Shape::Text(_) => Vec::new(),
     }
 }
@@ -89,7 +91,9 @@ pub fn reshaped(shape: &Shape, handle: Handle, to: Point, constrain: bool) -> Sh
             };
         }
         (
-            Shape::Rectangle(Rectangle { rect }) | Shape::Ellipse(Ellipse { rect }),
+            Shape::Rectangle(Rectangle { rect })
+            | Shape::Ellipse(Ellipse { rect })
+            | Shape::Blur(BlurRegion { rect }),
             Handle::Corner(index),
         ) => {
             *rect = drag_corner(*rect, index, to, constrain);

@@ -8,7 +8,7 @@ use iced::{keyboard, Element};
 
 use crate::canvas::{self, Input, InputKind, View, Viewport, Zoom, ZOOM_STEP};
 use crate::font;
-use crate::model::{Command, Document, Shape, Size, Style, StylePatch};
+use crate::model::{BlurMode, Command, Document, Shape, Size, Style, StylePatch};
 use crate::toolbar::toolbar;
 use crate::tools::{Context, Pointer, TextInput, Tool, ToolKind};
 
@@ -30,6 +30,9 @@ pub enum Message {
     StrokeWidth(f32),
     /// Sets the font size, like [`Message::Color`].
     FontSize(f32),
+    /// Sets how blur regions obscure what is beneath them, like
+    /// [`Message::Color`].
+    BlurMode(BlurMode),
     Undo,
     Redo,
     /// Deletes the selected annotations.
@@ -87,6 +90,8 @@ pub struct Editor {
     /// Device pixels per canvas pixel: the window's scale factor, which
     /// highlighters are rasterized at.
     scale_factor: f32,
+    /// The canvas's blur region pixels.
+    rasters: canvas::Rasters,
 }
 
 impl Editor {
@@ -108,6 +113,7 @@ impl Editor {
             modifiers: keyboard::Modifiers::default(),
             pointer: None,
             scale_factor: 1.0,
+            rasters: canvas::Rasters::default(),
         }
     }
 
@@ -160,6 +166,13 @@ impl Editor {
             Message::FontSize(size) => {
                 self.restyle(StylePatch {
                     font_size: Some(size),
+                    ..StylePatch::default()
+                });
+                None
+            }
+            Message::BlurMode(mode) => {
+                self.restyle(StylePatch {
+                    blur: Some(mode),
                     ..StylePatch::default()
                 });
                 None
@@ -218,6 +231,10 @@ impl Editor {
 
     pub(crate) const fn scale_factor(&self) -> f32 {
         self.scale_factor
+    }
+
+    pub(crate) const fn rasters(&self) -> &canvas::Rasters {
+        &self.rasters
     }
 
     /// The mapping for a canvas of `size`.
@@ -877,6 +894,7 @@ mod tests {
             ("l", ToolKind::Line),
             ("A", ToolKind::Arrow),
             ("r", ToolKind::Rectangle),
+            ("B", ToolKind::Blur),
             ("t", ToolKind::Text),
         ] {
             chord(&mut editor, key, keyboard::Modifiers::default());
@@ -980,6 +998,24 @@ mod tests {
         let newest = editor.document().annotations().last().unwrap();
         assert_eq!(newest.style.color, Style::DEFAULT_COLOR);
         assert_eq!(newest.style.stroke_width, 12.0);
+    }
+
+    #[test]
+    fn the_blur_mode_applies_to_new_regions_and_restyles_the_selected_one() {
+        let mut editor = editor();
+        editor.update(Message::Tool(ToolKind::Blur));
+        drag(&mut editor, at(10.0, 10.0), at(90.0, 60.0));
+        let mode =
+            |editor: &Editor, index: usize| editor.document().annotations()[index].style.blur;
+        assert_eq!(mode(&editor, 0), BlurMode::Pixelate, "pixelates by default");
+
+        editor.update(Message::BlurMode(BlurMode::Gaussian));
+        assert_eq!(mode(&editor, 0), BlurMode::Gaussian);
+        drag(&mut editor, at(200.0, 10.0), at(290.0, 60.0));
+        assert_eq!(mode(&editor, 1), BlurMode::Gaussian);
+        assert!(editor.document.undo());
+        assert!(editor.document.undo(), "the restyle");
+        assert_eq!(mode(&editor, 0), BlurMode::Pixelate);
     }
 
     #[test]

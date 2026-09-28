@@ -5,6 +5,7 @@
 use std::sync::PoisonError;
 
 use chartreuse_core::color::Rgba8;
+use chartreuse_core::geometry::PhysicalPoint;
 use iced::advanced::graphics::text::cosmic_text::{SwashCache, SwashContent, SwashImage};
 use iced::advanced::graphics::text::font_system;
 use tiny_skia::{ColorU8, Pixmap, PixmapPaint, PixmapRef, Transform};
@@ -29,8 +30,15 @@ impl Rasterizer {
         }
     }
 
-    /// Draws `text` in `style` into `layer`, source-over.
-    pub(super) fn draw(&mut self, layer: &mut Pixmap, text: &Text, style: &Style) {
+    /// Draws `text` in `style` into `layer`, source-over, `layer`'s top-left
+    /// pixel being document pixel `origin`.
+    pub(super) fn draw(
+        &mut self,
+        layer: &mut Pixmap,
+        origin: PhysicalPoint,
+        text: &Text,
+        style: &Style,
+    ) {
         font::load();
         let mut system = font_system()
             .write()
@@ -54,8 +62,8 @@ impl Rasterizer {
                     continue;
                 };
                 layer.draw_pixmap(
-                    physical.x + image.placement.left,
-                    physical.y - image.placement.top + baseline,
+                    physical.x + image.placement.left - origin.x,
+                    physical.y - image.placement.top + baseline - origin.y,
                     pixmap,
                     &paint,
                     Transform::identity(),

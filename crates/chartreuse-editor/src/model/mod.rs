@@ -20,8 +20,8 @@
 //!   at the bottom), the selection, and the undo history.
 //! - An [`Annotation`] is a stable [`AnnotationId`], a [`Shape`] (one variant
 //!   per kind: [`Line`], [`Arrow`], [`Rectangle`], [`Ellipse`], a pen's or
-//!   [`highlighter`]'s [`Polyline`], [`StepMarker`], [`Text`]) and a
-//!   [`Style`]. Step markers' numbers are derived:
+//!   [`highlighter`]'s [`Polyline`], [`StepMarker`], [`BlurRegion`],
+//!   [`Text`]) and a [`Style`]. Step markers' numbers are derived:
 //!   [`Document::step_number`].
 //! - Edits go through [`Document::add`] and [`Document::apply`] with a
 //!   [`Command`]; each is one undo step, and no-ops are not recorded.
@@ -39,8 +39,8 @@ mod history;
 mod style;
 
 pub use annotation::{
-    highlighter, Annotation, AnnotationId, Arrow, ArrowHead, Ellipse, Line, Polyline, Rectangle,
-    Shape, StepMarker, Text,
+    highlighter, Annotation, AnnotationId, Arrow, ArrowHead, BlurRegion, Ellipse, Line, Polyline,
+    Rectangle, Shape, StepMarker, Text,
 };
 pub use document::Document;
 pub use geometry::{
@@ -48,4 +48,4 @@ pub use geometry::{
     Rect, Size, Vector,
 };
 pub use history::{Command, Reorder};
-pub use style::{Style, StylePatch};
+pub use style::{BlurMode, Style, StylePatch};

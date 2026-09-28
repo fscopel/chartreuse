@@ -1,12 +1,12 @@
 use chartreuse_core::color::Rgba8;
-use chartreuse_core::geometry::PhysicalSize;
+use chartreuse_core::geometry::{PhysicalPoint, PhysicalRect, PhysicalSize};
 use chartreuse_core::image::Image;
 
 use super::*;
 use crate::font;
 use crate::model::{
     distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_triangle, Arrow,
-    Ellipse, Line, Polyline, Rect, Rectangle, StepMarker, Style, Text,
+    BlurMode, BlurRegion, Ellipse, Line, Polyline, Rect, Rectangle, StepMarker, Style, Text,
 };
 
 /// How far outside a shape's edge a pixel's center can be and still be
@@ -357,6 +357,177 @@ fn text_is_drawn_in_its_color_only_around_its_layout_box() {
     }
     // The bold stems of "HIT" and "ll" fully cover many pixels.
     assert!(solid > 150, "{solid} pixels in the text color");
+}
+
+/// Asserts that no channel of `a` differs from `b`'s by more than one.
+fn assert_within_rounding(a: &Image, b: &Image) {
+    assert_eq!(a.size(), b.size());
+    let worst = a
+        .pixels()
+        .iter()
+        .zip(b.pixels())
+        .map(|(a, b)| a.abs_diff(*b))
+        .max();
+    assert!(worst <= Some(1), "differ by up to {worst:?}");
+}
+
+fn blur(ax: f32, ay: f32, bx: f32, by: f32, mode: BlurMode) -> (Shape, Style) {
+    let region = BlurRegion {
+        rect: Rect::from_corners(Point::new(ax, ay), Point::new(bx, by)),
+    };
+    let style = Style {
+        blur: mode,
+        ..Style::default()
+    };
+    (Shape::Blur(region), style)
+}
+
+#[test]
+fn a_blur_region_obscures_only_what_is_beneath_it_within_its_pixels() {
+    let image = base(80, 60);
+    let green = Rgba8::rgb(0, 200, 0);
+    let below = (line(0.0, 30.0, 80.0, 30.0), style(BLUE, 6.0));
+    let above = (line(40.0, 0.0, 40.0, 60.0), style(green, 6.0));
+    // Edges at 10.4 and 50.6 round to pixels 10 to 51.
+    let region = blur(10.4, 10.0, 50.6, 50.0, BlurMode::Pixelate);
+    let pixels = PhysicalRect::new(10, 10, 41, 40);
+
+    let result = flattened(
+        image.clone(),
+        [below.clone(), region.clone(), above.clone()],
+    );
+    let unblurred = flattened(image.clone(), [below.clone(), above.clone()]);
+    let mut pixelated = flattened(image, [below]);
+    chartreuse_imaging::pixelate(&mut pixelated, pixels, BlurRegion::PIXELATE_BLOCK);
+
+    for y in 0..result.height() {
+        for x in 0..result.width() {
+            let pixel = result.pixel(x, y).unwrap();
+            let inside = pixels.contains(PhysicalPoint::new(x as i32, y as i32));
+            let near_above = (x as f32 + 0.5 - 40.0).abs() < 3.0 + EDGE;
+            if !inside {
+                assert_eq!(
+                    pixel,
+                    unblurred.pixel(x, y).unwrap(),
+                    "outside at ({x}, {y})"
+                );
+            } else if near_above {
+                // Drawn over the region, unobscured.
+                if (x as f32 + 0.5 - 40.0).abs() < 3.0 - EDGE {
+                    assert_eq!(pixel, green, "above at ({x}, {y})");
+                }
+            } else {
+                assert_eq!(
+                    pixel,
+                    pixelated.pixel(x, y).unwrap(),
+                    "inside at ({x}, {y})"
+                );
+            }
+        }
+    }
+    // The line beneath is gone: its blocks mix it with the base.
+    assert!((10..51).all(|x| result.pixel(x, 30).unwrap() != BLUE));
+}
+
+#[test]
+fn a_blur_region_obscures_other_blur_regions_beneath_it() {
+    let image = base(60, 40);
+    let region = blur(5.0, 5.0, 45.0, 35.0, BlurMode::Gaussian);
+    let result = flattened(
+        image.clone(),
+        [
+            (line(0.0, 20.0, 60.0, 20.0), style(BLUE, 4.0)),
+            blur(20.0, 0.0, 60.0, 40.0, BlurMode::Pixelate),
+            region,
+        ],
+    );
+    let mut expected = flattened(
+        image,
+        [
+            (line(0.0, 20.0, 60.0, 20.0), style(BLUE, 4.0)),
+            blur(20.0, 0.0, 60.0, 40.0, BlurMode::Pixelate),
+        ],
+    );
+    chartreuse_imaging::blur(
+        &mut expected,
+        PhysicalRect::new(5, 5, 40, 30),
+        BlurRegion::BLUR_RADIUS,
+    );
+    assert!(result == expected);
+}
+
+#[test]
+fn obscured_gives_a_region_exactly_the_pixels_flatten_does() {
+    let image = base(90, 60);
+    let text = Shape::Text(Text::new(Point::new(30.0, 20.0), "Hi"));
+    let text_style = Style {
+        color: BLUE,
+        font_size: 24.0,
+        ..Style::default()
+    };
+    // The region blurs across a pixelated region below it, which reads
+    // pixels well outside the top region (the text and the stroke among
+    // them), so obscuring it takes flattening more than its own pixels.
+    let stray = line(2.0, 57.0, 10.0, 57.0);
+    let shapes = [
+        (stray.clone(), style(BLUE, 2.0)),
+        (text, text_style),
+        (
+            line(0.0, 50.0, 90.0, 10.0),
+            style(Rgba8::rgb(0, 200, 0), 5.0),
+        ),
+        blur(20.0, 5.0, 70.0, 45.0, BlurMode::Pixelate),
+        (line(0.0, 5.0, 90.0, 55.0), style(BLUE, 3.0)),
+        (
+            Shape::Step(StepMarker {
+                center: Point::new(80.0, 50.0),
+            }),
+            text_style,
+        ),
+    ];
+    let (top, mode) = (
+        BlurRegion {
+            rect: Rect::from_corners(Point::new(55.0, 30.0), Point::new(88.0, 58.0)),
+        },
+        BlurMode::Gaussian,
+    );
+    let mut document = Document::new(image.clone());
+    for (shape, style) in shapes.iter().cloned() {
+        document.add(shape, style);
+    }
+    let below: Vec<_> = document
+        .annotations()
+        .iter()
+        .map(|annotation| Drawn::of(&document, annotation))
+        .collect();
+    let mut full = document.clone();
+    full.add(
+        Shape::Blur(top.clone()),
+        Style {
+            blur: mode,
+            ..Style::default()
+        },
+    );
+    let flat = flatten(&full).unwrap();
+
+    let (pixels, shown) = obscured(&image, &below, &top, mode).unwrap();
+    assert_eq!(pixels, PhysicalRect::new(55, 30, 33, 28));
+    let expected = chartreuse_imaging::crop(&flat, pixels).unwrap();
+    assert_within_rounding(&shown, &expected);
+
+    // What can affect it: everything but the stray line, far from both
+    // regions.
+    let beneath = beneath(&image, &below, &top);
+    assert_eq!(beneath.len(), below.len() - 1);
+    assert!(beneath.iter().all(|drawn| *drawn.shape != stray));
+    let (_, from_beneath) = obscured(&image, &beneath, &top, mode).unwrap();
+    assert!(from_beneath == shown);
+
+    // Off the image: nothing.
+    let off = BlurRegion {
+        rect: Rect::from_corners(Point::new(-20.0, 0.0), Point::new(-1.0, 10.0)),
+    };
+    assert!(obscured(&image, &below, &off, mode).is_none());
 }
 
 #[test]

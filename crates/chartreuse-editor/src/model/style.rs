@@ -28,6 +28,34 @@ pub struct Style {
     pub stroke_width: f32,
     /// Text size: the em size of the font (cosmic-text `Metrics::font_size`).
     pub font_size: f32,
+    /// How a blur region obscures what is beneath it.
+    pub blur: BlurMode,
+}
+
+/// How a [blur region](super::BlurRegion) obscures what is beneath it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum BlurMode {
+    /// A mosaic of [`BlurRegion::PIXELATE_BLOCK`](super::BlurRegion::PIXELATE_BLOCK)-pixel
+    /// squares, each the average of what it covers.
+    #[default]
+    Pixelate,
+    /// A Gaussian-like blur of radius
+    /// [`BlurRegion::BLUR_RADIUS`](super::BlurRegion::BLUR_RADIUS).
+    Gaussian,
+}
+
+impl BlurMode {
+    /// Both modes, in the order the toolbar offers them.
+    pub const ALL: [Self; 2] = [Self::Pixelate, Self::Gaussian];
+
+    /// The name the toolbar shows.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Pixelate => "Pixelate",
+            Self::Gaussian => "Blur",
+        }
+    }
 }
 
 impl Style {
@@ -42,6 +70,7 @@ impl Style {
             color: patch.color.unwrap_or(self.color),
             stroke_width: patch.stroke_width.unwrap_or(self.stroke_width),
             font_size: patch.font_size.unwrap_or(self.font_size),
+            blur: patch.blur.unwrap_or(self.blur),
         }
     }
 }
@@ -52,6 +81,7 @@ impl Default for Style {
             color: Self::DEFAULT_COLOR,
             stroke_width: 4.0,
             font_size: 24.0,
+            blur: BlurMode::default(),
         }
     }
 }
@@ -63,6 +93,7 @@ pub struct StylePatch {
     pub color: Option<Rgba8>,
     pub stroke_width: Option<f32>,
     pub font_size: Option<f32>,
+    pub blur: Option<BlurMode>,
 }
 
 #[cfg(test)]

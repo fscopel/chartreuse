@@ -13,6 +13,7 @@
 use chartreuse_core::flavor;
 use chartreuse_core::geometry::{PhysicalSize, ScaleFactor};
 use chartreuse_editor::canvas::{self, Input, InputKind, MARGIN};
+use chartreuse_editor::model::BlurMode;
 use chartreuse_editor::tools::ToolKind;
 use chartreuse_editor::{Editor, Message};
 use chartreuse_platform::fake;
@@ -132,6 +133,14 @@ fn demo() -> Vec<Message> {
     script.extend(stroke(&wave(1000.0, 1500.0, 560.0, 40.0)));
     script.push(Message::Tool(ToolKind::Highlighter));
     script.extend(stroke(&wave(200.0, 900.0, 930.0, 12.0)));
+    // Pixelate part of the rectangle and the line, and blur part of the pen
+    // stroke.
+    script.push(Message::Tool(ToolKind::Blur));
+    let escape = key(keyboard::Key::Named(Named::Escape), None);
+    script.extend(drag(at(560.0, 380.0), at(820.0, 900.0)));
+    script.extend([escape.clone(), Message::BlurMode(BlurMode::Gaussian)]);
+    script.extend(drag(at(1250.0, 480.0), at(1550.0, 640.0)));
+    script.extend([escape, Message::BlurMode(BlurMode::Pixelate)]);
     script.push(Message::Tool(ToolKind::Step));
     for (x, y) in [(260.0, 110.0), (730.0, 110.0), (1170.0, 700.0)] {
         script.extend(drag(at(x, y), at(x, y)));

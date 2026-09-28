@@ -1,4 +1,5 @@
-//! The editor's toolbar: tools, style controls, undo and redo, and zoom.
+//! The editor's toolbar: tools, style controls (including how blur regions
+//! obscure), undo and redo, and zoom.
 //!
 //! Its accent (the active tool, the chosen color swatch) is the theme's
 //! primary color; the app's theme sets that to the build flavor's accent.
@@ -11,6 +12,7 @@ use iced::{Alignment, Background, Border, Element, Theme};
 
 use crate::canvas;
 use crate::editor::{Message, ZoomChange};
+use crate::model::BlurMode;
 use crate::tools::ToolKind;
 use crate::Editor;
 
@@ -104,6 +106,17 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         .into(),
     ]);
 
+    let blur = group(BlurMode::ALL.into_iter().map(|mode| {
+        button(text(mode.label()))
+            .on_press(Message::BlurMode(mode))
+            .style(if mode == style.blur {
+                button::primary
+            } else {
+                button::secondary
+            })
+            .into()
+    }));
+
     let history = group([
         button(text("Undo"))
             .on_press_maybe(document.can_undo().then_some(Message::Undo))
@@ -132,7 +145,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
             .into(),
     ]);
 
-    row![tools, colors, sizes, history, zoom]
+    row![tools, colors, sizes, blur, history, zoom]
         .spacing(GROUP_SPACING)
         .padding(8)
         .align_y(Alignment::Center)

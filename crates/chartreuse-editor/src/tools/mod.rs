@@ -28,6 +28,7 @@
 //! `pen.rs`).
 
 mod arrow;
+mod blur;
 mod drag;
 mod ellipse;
 mod freehand;
@@ -47,6 +48,7 @@ use iced::mouse::Interaction;
 use crate::model::{AnnotationId, Document, Point, Shape, Style, Vector};
 
 pub use arrow::ArrowTool;
+pub use blur::BlurTool;
 pub use drag::{DragShape, DragTool};
 pub use ellipse::EllipseTool;
 pub use freehand::{FreehandShape, FreehandTool};
@@ -80,11 +82,12 @@ pub enum ToolKind {
     Highlighter,
     Text,
     Step,
+    Blur,
 }
 
 impl ToolKind {
     /// Every kind, in toolbar order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Select,
         Self::Line,
         Self::Arrow,
@@ -94,6 +97,7 @@ impl ToolKind {
         Self::Highlighter,
         Self::Text,
         Self::Step,
+        Self::Blur,
     ];
 
     /// The name shown in the toolbar.
@@ -109,6 +113,7 @@ impl ToolKind {
             Self::Highlighter => "Highlighter",
             Self::Text => "Text",
             Self::Step => "Step",
+            Self::Blur => "Blur",
         }
     }
 
@@ -125,6 +130,7 @@ impl ToolKind {
             Self::Highlighter => 'h',
             Self::Text => 't',
             Self::Step => 'n',
+            Self::Blur => 'b',
         }
     }
 
@@ -153,6 +159,7 @@ impl ToolKind {
             Self::Highlighter => Box::<HighlighterTool>::default(),
             Self::Text => Box::<TextTool>::default(),
             Self::Step => Box::<StepTool>::default(),
+            Self::Blur => Box::<BlurTool>::default(),
         }
     }
 }

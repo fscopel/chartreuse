@@ -40,6 +40,13 @@
 //!   color, then its number ([`Document::step_number`]) drawn as text would
 //!   be, in [`StepMarker::number_color`], at the layout box position
 //!   [`StepMarker::label_origin`] gives for the number's [`font::measure`].
+//! - A blur region composites everything drawn so far onto the image
+//!   (`Flattener::flush`), then runs [`chartreuse_imaging::pixelate`] (with
+//!   [`BlurRegion::PIXELATE_BLOCK`]) or [`chartreuse_imaging::blur`] (with
+//!   [`BlurRegion::BLUR_RADIUS`]), as its style's [`BlurMode`] says, over
+//!   [`BlurRegion::pixels`] of the result, so it obscures exactly what lies
+//!   beneath it. The canvas shows it with `obscured`, which computes the same
+//!   pixels.
 //! - Text is laid out by [`font::layout`] and each glyph rasterized by swash,
 //!   placed as iced places canvas text: the glyph's pixel origin is
 //!   [`LayoutGlyph::physical`] with the text's position as the offset, moved
@@ -57,16 +64,14 @@
 //! (from a pasted or opened image) are blended correctly rather than
 //! round-tripped through premultiplied 8-bit color.
 //!
-//! # Adding a kind (3B)
+//! # Adding a kind
 //!
 //! A new [`Shape`] variant needs one arm in the private `Flattener::draw`,
-//! built from its helpers:
-//!
-//! - blur and pixelate regions act on everything below them: call
-//!   `Flattener::flush` to composite the layer so far onto the image, then
-//!   run the `chartreuse_imaging` kernel on `Flattener::image`;
-//! - the document-level crop applies last, to the finished image
-//!   (`chartreuse_imaging::crop`).
+//! built from its helpers. Kinds that act on what is beneath them, as blur
+//! regions do, `flush` first and then work on `Flattener::image`. A
+//! `Flattener` covers a window of the document (all of it, for [`flatten`]),
+//! so draw through `Flattener::transform`. The document-level crop (3B)
+//! applies last, to the finished image (`chartreuse_imaging::crop`).
 //!
 //! [`Style`]: crate::model::Style
 //! [tiny-skia]: https://docs.rs/tiny-skia/0.11
@@ -86,7 +91,9 @@ mod text;
 
 use chartreuse_core::color::Rgba8;
 use chartreuse_core::error::{Error, Result};
+use chartreuse_core::geometry::{PhysicalPoint, PhysicalRect};
 use chartreuse_core::image::Image;
+use chartreuse_imaging::region::clip;
 use tiny_skia::{
     FillRule, FilterQuality, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, PixmapPaint,
     Stroke, Transform,
@@ -94,7 +101,8 @@ use tiny_skia::{
 
 use crate::font;
 use crate::model::{
-    highlighter, Annotation, Document, Point, Polyline, Shape, StepMarker, Style, Text,
+    highlighter, Annotation, BlurMode, BlurRegion, Document, Point, Polyline, Rect, Shape, Size,
+    StepMarker, Style, Text,
 };
 
 /// The document's base image with every annotation drawn over it, bottom to
@@ -117,26 +125,159 @@ pub fn flatten(document: &Document) -> Result<Image> {
     if annotations.is_empty() || base.width() == 0 || base.height() == 0 {
         return Ok(base.clone());
     }
-    let mut flattener = Flattener::new(base.clone())?;
+    let mut flattener = Flattener::new(base.clone(), PhysicalPoint::new(0, 0))?;
     for annotation in annotations {
-        flattener.draw(annotation, document.step_number(annotation.id()));
+        flattener.draw(&Drawn::of(document, annotation));
     }
     flattener.flush();
     Ok(flattener.image)
 }
 
-/// An image being flattened: the pixels so far, and the annotations drawn
-/// since the last [`flush`](Self::flush), not yet composited onto them.
+/// An annotation as flatten draws it: its shape and style, and a step
+/// marker's number.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Drawn<'a> {
+    pub(crate) shape: &'a Shape,
+    pub(crate) style: &'a Style,
+    pub(crate) number: Option<usize>,
+}
+
+impl<'a> Drawn<'a> {
+    /// `annotation` as it is in `document`.
+    pub(crate) fn of(document: &Document, annotation: &'a Annotation) -> Self {
+        Self {
+            shape: &annotation.shape,
+            style: &annotation.style,
+            number: document.step_number(annotation.id()),
+        }
+    }
+
+    /// A rectangle outside which the annotation draws nothing: its bounds,
+    /// grown for anti-aliasing and for glyph ink overhanging text's layout
+    /// box.
+    fn reach(&self) -> Rect {
+        let slack = match self.shape {
+            Shape::Text(_) | Shape::Step(_) => self.style.font_size.max(0.0),
+            _ => 2.0,
+        };
+        self.shape.bounds(self.style).expand(slack)
+    }
+}
+
+/// What blur region `region`, drawn in `mode` over `below` (the annotations
+/// beneath it, bottom to top, on `base`), leaves in the pixels it acts on:
+/// the pixels [`flatten`] gives them, before anything above the region is
+/// drawn. Returns those pixels' rectangle within the image, and their
+/// contents; `None` if the region covers none of the image.
+///
+/// Only the part of the document the result depends on is flattened: the
+/// region, plus any blur regions below that overlap it (whose effect reads
+/// pixels around it), and so on. Rasterizing shapes into that smaller window
+/// can shade an anti-aliased pixel one unit differently than rasterizing
+/// them into the whole image does, so the result matches flatten's to within
+/// one per channel. The canvas shows blur regions with this.
+pub(crate) fn obscured(
+    base: &Image,
+    below: &[Drawn<'_>],
+    region: &BlurRegion,
+    mode: BlurMode,
+) -> Option<(PhysicalRect, Image)> {
+    let target = clip(base, region.pixels()?)?;
+    let window = window(base, below, target);
+    let pixels = chartreuse_imaging::crop(base, window).ok()?;
+    let mut flattener = Flattener::new(pixels, window.origin).ok()?;
+    for drawn in below {
+        flattener.draw(drawn);
+    }
+    flattener.obscure(region, mode);
+    let within = PhysicalRect {
+        origin: PhysicalPoint::new(
+            target.origin.x - window.origin.x,
+            target.origin.y - window.origin.y,
+        ),
+        size: target.size,
+    };
+    let image = chartreuse_imaging::crop(&flattener.image, within).ok()?;
+    Some((target, image))
+}
+
+/// The annotations among `below` that can change what [`obscured`] gives
+/// `region`: those that draw somewhere in the pixels it depends on. Leaving
+/// the others out gives the same result.
+pub(crate) fn beneath<'a>(
+    base: &Image,
+    below: &[Drawn<'a>],
+    region: &BlurRegion,
+) -> Vec<Drawn<'a>> {
+    let Some(target) = region.pixels().and_then(|pixels| clip(base, pixels)) else {
+        return Vec::new();
+    };
+    let window = window(base, below, target);
+    let window = Rect::new(
+        Point::new(window.origin.x as f32, window.origin.y as f32),
+        Size::new(window.size.width as f32, window.size.height as f32),
+    );
+    below
+        .iter()
+        .filter(|drawn| drawn.reach().intersects(&window))
+        .copied()
+        .collect()
+}
+
+/// The part of the image that what a blur region leaves in `target` (its
+/// pixels within the image) depends on: `target`, grown to take in every
+/// blur region in `below` that overlaps it, until none that overlaps is left
+/// out (each reads all of its own pixels).
+fn window(base: &Image, below: &[Drawn<'_>], target: PhysicalRect) -> PhysicalRect {
+    let regions: Vec<_> = below
+        .iter()
+        .filter_map(|drawn| match drawn.shape {
+            Shape::Blur(region) => clip(base, region.pixels()?),
+            _ => None,
+        })
+        .collect();
+    let mut window = target;
+    loop {
+        let grown = regions
+            .iter()
+            .filter(|region| region.intersection(&window).is_some())
+            .fold(window, |window, region| union(window, *region));
+        if grown == window {
+            return window;
+        }
+        window = grown;
+    }
+}
+
+/// The smallest rectangle containing both (which lie within one image).
+fn union(a: PhysicalRect, b: PhysicalRect) -> PhysicalRect {
+    let (x0, y0) = (a.min_x().min(b.min_x()), a.min_y().min(b.min_y()));
+    let (x1, y1) = (a.max_x().max(b.max_x()), a.max_y().max(b.max_y()));
+    // Within the image, so the casts are exact.
+    PhysicalRect::new(
+        x0,
+        y0,
+        (x1 - i64::from(x0)) as u32,
+        (y1 - i64::from(y0)) as u32,
+    )
+}
+
+/// A window of a document being flattened: its pixels so far, and the
+/// annotations drawn since the last [`flush`](Self::flush), not yet
+/// composited onto them.
 struct Flattener {
     /// Straight alpha.
     image: Image,
+    /// Where `image`'s top-left pixel is in the document.
+    origin: PhysicalPoint,
     /// Premultiplied, the image's size.
     layer: Pixmap,
     text: text::Rasterizer,
 }
 
 impl Flattener {
-    fn new(image: Image) -> Result<Self> {
+    /// Flattens onto `image`, the document's pixels from `origin` on.
+    fn new(image: Image, origin: PhysicalPoint) -> Result<Self> {
         let layer = Pixmap::new(image.width(), image.height()).ok_or_else(|| {
             Error::InvalidImage(format!(
                 "{}×{} is too large to flatten",
@@ -146,38 +287,43 @@ impl Flattener {
         })?;
         Ok(Self {
             image,
+            origin,
             layer,
             text: text::Rasterizer::new(),
         })
     }
 
-    /// Draws `annotation` into the layer, above everything drawn so far.
-    /// `number` is a step marker's number.
-    fn draw(&mut self, annotation: &Annotation, number: Option<usize>) {
-        let style = &annotation.style;
+    /// Maps document coordinates onto the window's pixels.
+    fn transform(&self) -> Transform {
+        Transform::from_translate(-self.origin.x as f32, -self.origin.y as f32)
+    }
+
+    /// Draws an annotation above everything drawn so far.
+    fn draw(&mut self, drawn: &Drawn<'_>) {
+        let style = drawn.style;
         let paint = paint(style.color);
         let width = style.stroke_width.max(0.0);
+        let transform = self.transform();
         let layer = &mut self.layer;
-        let identity = Transform::identity();
-        match &annotation.shape {
-            Shape::Line(line) => polyline(layer, &[line.start, line.end], width, &paint, identity),
+        match drawn.shape {
+            Shape::Line(line) => polyline(layer, &[line.start, line.end], width, &paint, transform),
             Shape::Arrow(arrow) => match arrow.head(style.stroke_width) {
                 Some(head) => {
-                    polyline(layer, &[arrow.start, head.base], width, &paint, identity);
+                    polyline(layer, &[arrow.start, head.base], width, &paint, transform);
                     let [tip, left, right] = head.corners();
                     let mut path = PathBuilder::new();
                     path.move_to(tip.x, tip.y);
                     path.line_to(left.x, left.y);
                     path.line_to(right.x, right.y);
                     path.close();
-                    fill(layer, path.finish(), &paint, identity);
+                    fill(layer, path.finish(), &paint, transform);
                 }
-                None => dot(layer, arrow.start, width, &paint, identity),
+                None => dot(layer, arrow.start, width, &paint, transform),
             },
             Shape::Rectangle(rectangle) => {
                 let [a, b, c, d] = rectangle.rect.corners();
                 if a == c {
-                    dot(layer, a, width, &paint, identity);
+                    dot(layer, a, width, &paint, transform);
                 } else {
                     let mut path = PathBuilder::new();
                     path.move_to(a.x, a.y);
@@ -185,13 +331,13 @@ impl Flattener {
                         path.line_to(corner.x, corner.y);
                     }
                     path.close();
-                    stroke(layer, path.finish(), width, &paint, identity);
+                    stroke(layer, path.finish(), width, &paint, transform);
                 }
             }
             Shape::Ellipse(ellipse) => {
                 let (start, curves) = ellipse.curves();
                 if ellipse.rect.width() == 0.0 && ellipse.rect.height() == 0.0 {
-                    dot(layer, start, width, &paint, identity);
+                    dot(layer, start, width, &paint, transform);
                 } else {
                     let mut path = PathBuilder::new();
                     path.move_to(start.x, start.y);
@@ -199,15 +345,15 @@ impl Flattener {
                         path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
                     }
                     path.close();
-                    stroke(layer, path.finish(), width, &paint, identity);
+                    stroke(layer, path.finish(), width, &paint, transform);
                 }
             }
-            Shape::Pen(pen) => polyline(layer, &pen.points, width, &paint, identity),
+            Shape::Pen(pen) => polyline(layer, &pen.points, width, &paint, transform),
             Shape::Highlighter(stroke) => self.highlighter(stroke, style),
             Shape::Step(step) => {
                 let diameter = 2.0 * StepMarker::radius(style.font_size);
-                dot(layer, step.center, diameter, &paint, identity);
-                if let Some(number) = number {
+                dot(layer, step.center, diameter, &paint, transform);
+                if let Some(number) = drawn.number {
                     let label = number.to_string();
                     let size = font::measure(&label, style.font_size);
                     let text = Text::new(step.label_origin(size), label);
@@ -215,10 +361,37 @@ impl Flattener {
                         color: StepMarker::number_color(style.color),
                         ..*style
                     };
-                    self.text.draw(layer, &text, &style);
+                    self.text.draw(layer, self.origin, &text, &style);
                 }
             }
-            Shape::Text(text) => self.text.draw(layer, text, style),
+            Shape::Blur(region) => self.obscure(region, style.blur),
+            Shape::Text(text) => self.text.draw(layer, self.origin, text, style),
+        }
+    }
+
+    /// A blur region: composites what is drawn so far, then obscures the
+    /// region's pixels of the result.
+    fn obscure(&mut self, region: &BlurRegion, mode: BlurMode) {
+        let Some(pixels) = region.pixels() else {
+            return;
+        };
+        self.flush();
+        // Both well within i32 (see `BlurRegion::pixels`), so this cannot
+        // overflow.
+        let within = PhysicalRect {
+            origin: PhysicalPoint::new(
+                pixels.origin.x - self.origin.x,
+                pixels.origin.y - self.origin.y,
+            ),
+            size: pixels.size,
+        };
+        match mode {
+            BlurMode::Pixelate => {
+                chartreuse_imaging::pixelate(&mut self.image, within, BlurRegion::PIXELATE_BLOCK);
+            }
+            BlurMode::Gaussian => {
+                chartreuse_imaging::blur(&mut self.image, within, BlurRegion::BLUR_RADIUS);
+            }
         }
     }
 
@@ -228,22 +401,23 @@ impl Flattener {
     fn highlighter(&mut self, stroke: &Polyline, style: &Style) {
         let reach = highlighter::width(style) / 2.0;
         let bounds = stroke.path_bounds().expand(reach);
+        let (ox, oy) = (self.origin.x as f32, self.origin.y as f32);
         let clamp = |value: f32, size: u32| {
-            // Clamped to the image first, so the casts are exact.
+            // Clamped to the window first, so the casts are exact.
             value.clamp(0.0, size as f32) as i32
         };
         let (x0, y0) = (
-            clamp(bounds.min().x.floor(), self.image.width()),
-            clamp(bounds.min().y.floor(), self.image.height()),
+            clamp(bounds.min().x.floor() - ox, self.image.width()),
+            clamp(bounds.min().y.floor() - oy, self.image.height()),
         );
         let (x1, y1) = (
-            clamp(bounds.max().x.ceil(), self.image.width()),
-            clamp(bounds.max().y.ceil(), self.image.height()),
+            clamp(bounds.max().x.ceil() - ox, self.image.width()),
+            clamp(bounds.max().y.ceil() - oy, self.image.height()),
         );
         let (Ok(width), Ok(height)) = (u32::try_from(x1 - x0), u32::try_from(y1 - y0)) else {
             return;
         };
-        let transform = Transform::from_translate(-x0 as f32, -y0 as f32);
+        let transform = Transform::from_translate(-x0 as f32 - ox, -y0 as f32 - oy);
         if let Some(layer) = highlighter_layer(stroke, style, transform, width, height) {
             let paint = PixmapPaint {
                 opacity: highlighter::alpha(style),

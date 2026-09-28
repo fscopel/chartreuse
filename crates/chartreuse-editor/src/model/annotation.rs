@@ -15,7 +15,10 @@
 //! increase in creation order and are never reused, and undo restores the
 //! original id, so that rank is stable under reordering and undo.
 
+use std::num::NonZeroU32;
+
 use chartreuse_core::color::Rgba8;
+use chartreuse_core::geometry::PhysicalRect;
 
 use super::geometry::{
     distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_triangle, Point,
@@ -87,6 +90,8 @@ pub enum Shape {
     Highlighter(Polyline),
     /// A numbered step marker.
     Step(StepMarker),
+    /// A region that pixelates or blurs what is beneath it.
+    Blur(BlurRegion),
     Text(Text),
 }
 
@@ -112,6 +117,8 @@ impl Shape {
     /// - Highlighter: within [`highlighter::width`]` / 2 + tolerance` of the
     ///   path.
     /// - Step marker: within `tolerance` of its disc ([`StepMarker::radius`]).
+    /// - Blur region: inside its rectangle grown by `tolerance`; it covers
+    ///   what is beneath it, so all of it hits.
     /// - Text: inside [`Text::bounds`] grown by `tolerance`.
     #[must_use]
     pub fn hit(&self, style: &Style, point: Point, tolerance: f32) -> bool {
@@ -136,6 +143,7 @@ impl Shape {
             Self::Step(step) => {
                 point.distance(step.center) <= StepMarker::radius(style.font_size) + tolerance
             }
+            Self::Blur(region) => region.rect.expand(tolerance).contains(point),
             Self::Text(text) => text
                 .bounds(style.font_size)
                 .expand(tolerance)
@@ -170,6 +178,7 @@ impl Shape {
                 let center = Rect::from_corners(step.center, step.center);
                 center.expand(StepMarker::radius(style.font_size))
             }
+            Self::Blur(region) => region.rect,
             Self::Text(text) => text.bounds(style.font_size),
         }
     }
@@ -189,6 +198,7 @@ impl Shape {
             Self::Ellipse(ellipse) => ellipse.rect = ellipse.rect.translate(delta),
             Self::Pen(stroke) | Self::Highlighter(stroke) => stroke.translate(delta),
             Self::Step(step) => step.center += delta,
+            Self::Blur(region) => region.rect = region.rect.translate(delta),
             Self::Text(text) => text.position += delta,
         }
     }
@@ -437,6 +447,48 @@ impl StepMarker {
             0.2126 * f32::from(color.r) + 0.7152 * f32::from(color.g) + 0.0722 * f32::from(color.b);
         let level = if luma > 0.6 * 255.0 { 0 } else { u8::MAX };
         Rgba8::new(level, level, level, color.a)
+    }
+}
+
+/// A region that obscures whatever lies beneath it in z-order (the base
+/// image and the annotations below it, not those above), as the style's
+/// [`BlurMode`](super::BlurMode) says: pixelated into
+/// [`PIXELATE_BLOCK`](Self::PIXELATE_BLOCK)-pixel squares, or blurred with a
+/// radius of [`BLUR_RADIUS`](Self::BLUR_RADIUS). Color, stroke width, and font
+/// size do not apply.
+///
+/// It acts on the whole pixels of [`BlurRegion::pixels`] and reads only
+/// those, so nothing outside it leaks in. The mosaic's grid starts at that
+/// rectangle's top-left corner, and the effect is in image pixels, so it looks
+/// the same at every zoom and in the export.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlurRegion {
+    pub rect: Rect,
+}
+
+impl BlurRegion {
+    /// The side of a pixelated region's squares, in image pixels.
+    pub const PIXELATE_BLOCK: NonZeroU32 = NonZeroU32::new(12).unwrap();
+
+    /// A blurred region's blur radius (about its standard deviation), in
+    /// image pixels.
+    pub const BLUR_RADIUS: u32 = 8;
+
+    /// The pixels the region acts on: its rectangle with each edge rounded to
+    /// the nearest pixel boundary (so it may reach past the image, which
+    /// clips it). `None` if that leaves no pixels.
+    #[must_use]
+    pub fn pixels(&self) -> Option<PhysicalRect> {
+        // Far beyond any image, and small enough that the differences below
+        // cannot overflow.
+        const LIMIT: f32 = (1 << 30) as f32;
+        let edge = |value: f32| value.round().clamp(-LIMIT, LIMIT) as i32;
+        let (min, max) = (self.rect.min(), self.rect.max());
+        let (x0, y0) = (edge(min.x), edge(min.y));
+        let width = u32::try_from(edge(max.x) - x0).ok()?;
+        let height = u32::try_from(edge(max.y) - y0).ok()?;
+        let pixels = PhysicalRect::new(x0, y0, width, height);
+        (!pixels.is_empty()).then_some(pixels)
     }
 }
 
@@ -813,6 +865,32 @@ mod tests {
     }
 
     #[test]
+    fn a_blur_region_hits_all_over_and_acts_on_rounded_pixels() {
+        let region = BlurRegion {
+            rect: Rect::from_corners(Point::new(10.4, 20.6), Point::new(30.5, 40.0)),
+        };
+        let shape = Shape::Blur(region.clone());
+        let style = style(100.0);
+        // Inside hits, however far from the edge; the stroke width is ignored.
+        assert!(shape.hit(&style, Point::new(20.0, 30.0), 0.0));
+        assert!(shape.hit(&style, Point::new(32.5, 30.0), 2.0));
+        assert!(!shape.hit(&style, Point::new(32.6, 30.0), 2.0));
+        assert_eq!(shape.bounds(&style), region.rect);
+        // Each edge rounds to the nearest pixel boundary (30.5 rounds away).
+        assert_eq!(region.pixels(), Some(PhysicalRect::new(10, 21, 21, 19)));
+        // Off the image is fine; the image clips it.
+        let off = BlurRegion {
+            rect: Rect::from_corners(Point::new(-5.0, -5.0), Point::new(2.0, 2.0)),
+        };
+        assert_eq!(off.pixels(), Some(PhysicalRect::new(-5, -5, 7, 7)));
+        // Thinner than half a pixel: nothing.
+        let thin = BlurRegion {
+            rect: Rect::from_corners(Point::new(4.6, 0.0), Point::new(5.4, 10.0)),
+        };
+        assert_eq!(thin.pixels(), None);
+    }
+
+    #[test]
     fn translate_moves_every_point_of_every_kind() {
         let delta = Vector::new(3.0, -2.0);
         let rect = Rect::from_corners(Point::ORIGIN, Point::new(4.0, 4.0));
@@ -854,6 +932,12 @@ mod tests {
             (
                 Shape::Text(Text::new(Point::ORIGIN, "x")),
                 Shape::Text(Text::new(Point::new(3.0, -2.0), "x")),
+            ),
+            (
+                Shape::Blur(BlurRegion { rect }),
+                Shape::Blur(BlurRegion {
+                    rect: rect.translate(delta),
+                }),
             ),
         ];
         for (mut shape, expected) in cases {
