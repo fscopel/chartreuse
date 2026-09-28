@@ -423,7 +423,8 @@ mod tests {
         click(&mut editor, at(100.0, 10.0));
         let line = Panel::of(&editor);
         assert_eq!(line.color, Control::Shown(Some(Style::DEFAULT_COLOR)));
-        assert_eq!(line.stroke_width, Control::Shown(Some(4.0)));
+        let stroke = Style::default().stroke_width;
+        assert_eq!(line.stroke_width, Control::Shown(Some(stroke)));
         assert_eq!(line.font_size, Control::Hidden, "not for a line");
         assert_eq!(line.blur, Control::Hidden);
 
@@ -436,7 +437,7 @@ mod tests {
             Panel::of(&editor),
             Panel {
                 color: Control::Shown(None),
-                stroke_width: Control::Shown(Some(4.0)),
+                stroke_width: Control::Shown(Some(stroke)),
                 font_size: Control::Shown(Some(40.0)),
                 blur: Control::Hidden,
             }

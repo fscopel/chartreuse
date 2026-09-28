@@ -81,7 +81,7 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             color: Self::DEFAULT_COLOR,
-            stroke_width: 4.0,
+            stroke_width: 8.0,
             font_size: 24.0,
             blur: BlurMode::default(),
         }

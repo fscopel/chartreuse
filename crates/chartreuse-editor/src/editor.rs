@@ -1053,7 +1053,10 @@ mod tests {
         assert_eq!(editor.style().color, BLUE);
 
         assert!(editor.document.undo(), "each change is one step");
-        assert_eq!(editor.document().annotations()[0].style.stroke_width, 4.0);
+        assert_eq!(
+            editor.document().annotations()[0].style.stroke_width,
+            Style::default().stroke_width
+        );
         assert_eq!(editor.document().annotations()[0].style.color, BLUE);
         assert!(editor.document.undo());
         assert_eq!(
