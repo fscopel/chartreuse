@@ -73,6 +73,11 @@ const RESIZE_FIELD: f32 = 72.0;
 const ARROW_WIDTH: f32 = 20.0;
 const ARROW_HEIGHT: f32 = 14.0;
 
+/// The width of the current zoom between the zoom buttons: room for the
+/// widest value ([`canvas::MAX_SCALE`], "3200%") with some to spare, so the
+/// buttons stay put as the zoom changes.
+const ZOOM_VALUE_WIDTH: f32 = 60.0;
+
 /// A size in image pixels, as a pick-list entry.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Pixels(f32);
@@ -292,7 +297,10 @@ pub(crate) fn zoom_controls(editor: &Editor) -> Element<'_, Message> {
             .on_press(Message::Zoom(ZoomChange::Out))
             .style(button::secondary)
             .into(),
-        text(format!("{:.0}%", scale * 100.0)).into(),
+        text(format!("{:.0}%", scale * 100.0))
+            .width(ZOOM_VALUE_WIDTH)
+            .align_x(Alignment::Center)
+            .into(),
         button(text("+"))
             .on_press(Message::Zoom(ZoomChange::In))
             .style(button::secondary)
