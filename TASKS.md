@@ -396,7 +396,7 @@ Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/windows
 - [x] `Shell_NotifyIcon` tray, with no taskbar entry
 - [x] Clipboard with `CF_DIBV5` and a registered PNG format
 - [x] `IFileOpenDialog` / `IFileSaveDialog`
-- [ ] Launch at login using the `Run` key (if 3C is in scope)
+- [x] Launch at login using the `Run` key (if 3C is in scope)
 - [ ] Integration pass: every M2–M7 flow works on Windows
   - [ ] Overlay placement on mixed-DPI setups: `chartreuse-overlay::setup` uses logical
         `Position::Specific`, which winit converts with one scale factor on Windows;

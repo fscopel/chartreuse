@@ -39,6 +39,7 @@ mod ico;
 mod keys;
 mod layout;
 mod pixels;
+mod run_key;
 mod tray_menu;
 #[cfg(windows)]
 mod util;
