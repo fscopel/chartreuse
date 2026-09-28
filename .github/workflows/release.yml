@@ -46,12 +46,26 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
       # Installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup toolchain install
-      # `--allow-ad-hoc` only matters on macOS, and only while the signing
-      # secret is unset: the app is then signed ad-hoc and its archive is
-      # named `-unsigned`. Track 5A adds the credentials and drops the flag.
+      # macOS: imports the Developer ID identity into a temporary keychain.
+      # Until the CHARTREUSE_SIGN_P12_BASE64 secret exists it does nothing (the
+      # xtask decides, so the workflow holds no logic). See "Release signing
+      # secrets" in the README.
+      - if: runner.os == 'macOS'
+        run: cargo xtask ci-keychain --skip-if-unset
+        env:
+          CHARTREUSE_SIGN_P12_BASE64: ${{ secrets.CHARTREUSE_SIGN_P12_BASE64 }}
+          CHARTREUSE_SIGN_P12_PASSWORD: ${{ secrets.CHARTREUSE_SIGN_P12_PASSWORD }}
+          CHARTREUSE_RELEASE_SIGN_IDENTITY: ${{ secrets.CHARTREUSE_RELEASE_SIGN_IDENTITY }}
+      # `--allow-ad-hoc` only matters on macOS, and only while the
+      # CHARTREUSE_RELEASE_SIGN_IDENTITY secret is unset: the app is then signed
+      # ad-hoc, nothing is notarized, and the disk image is named `-unsigned`.
+      # Once the identity is set, missing notarization secrets fail the job.
       - run: cargo xtask release --allow-ad-hoc
         env:
           CHARTREUSE_RELEASE_SIGN_IDENTITY: ${{ secrets.CHARTREUSE_RELEASE_SIGN_IDENTITY }}
+          CHARTREUSE_NOTARY_KEY: ${{ secrets.CHARTREUSE_NOTARY_KEY }}
+          CHARTREUSE_NOTARY_KEY_ID: ${{ secrets.CHARTREUSE_NOTARY_KEY_ID }}
+          CHARTREUSE_NOTARY_ISSUER: ${{ secrets.CHARTREUSE_NOTARY_ISSUER }}
       - uses: actions/upload-artifact@v4
         with:
           name: chartreuse-${{ matrix.name }}
