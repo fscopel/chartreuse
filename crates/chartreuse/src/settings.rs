@@ -1424,7 +1424,7 @@ mod tests {
             .windows
             .open(WindowKind::Editor, window::Settings::default());
 
-        send(&mut app, Message::Record(CaptureMode::Window));
+        send(&mut app, Message::Record(CaptureMode::Selection));
         send(
             &mut app,
             Message::Recorder(
@@ -1432,12 +1432,16 @@ mod tests {
                 RecorderInput::Key(Physical::Code(Code::KeyK), Held::LOGO),
             ),
         );
-        assert_eq!(recording(&app), Some(CaptureMode::Window), "not our window");
+        assert_eq!(
+            recording(&app),
+            Some(CaptureMode::Selection),
+            "not our window"
+        );
         press(&mut app, Code::Escape, Held::empty());
         assert_eq!(recording(&app), None);
         assert_eq!(fake.registered_hotkeys(), defaults());
 
-        send(&mut app, Message::Record(CaptureMode::Window));
+        send(&mut app, Message::Record(CaptureMode::Selection));
         send(
             &mut app,
             Message::Recorder(settings, RecorderInput::Unfocused),
@@ -1445,12 +1449,12 @@ mod tests {
         assert_eq!(recording(&app), None);
         assert_eq!(fake.registered_hotkeys(), defaults());
 
-        send(&mut app, Message::Record(CaptureMode::Window));
-        send(&mut app, Message::Record(CaptureMode::Window));
+        send(&mut app, Message::Record(CaptureMode::Selection));
+        send(&mut app, Message::Record(CaptureMode::Selection));
         assert_eq!(recording(&app), None, "clicked again");
         assert_eq!(fake.registered_hotkeys(), defaults());
 
-        send(&mut app, Message::Record(CaptureMode::Window));
+        send(&mut app, Message::Record(CaptureMode::Selection));
         let _ = app.settle(AppMessage::WindowClosed(settings));
         assert_eq!(fake.registered_hotkeys(), defaults());
         assert_eq!(app.config.hotkeys, Hotkeys::default());
@@ -1461,12 +1465,12 @@ mod tests {
         let (mut app, fake, _temp) = app_with_file();
         send(&mut app, Message::Open);
 
-        send(&mut app, Message::Record(CaptureMode::Window));
+        send(&mut app, Message::Record(CaptureMode::Selection));
         press(&mut app, Code::Digit3, Held::CTRL | Held::ALT | Held::SHIFT);
 
         assert_eq!(app.config.hotkeys, Hotkeys::default());
-        assert_eq!(recording(&app), Some(CaptureMode::Window));
-        let line = hotkey_line(&app, CaptureMode::Window);
+        assert_eq!(recording(&app), Some(CaptureMode::Selection));
+        let line = hotkey_line(&app, CaptureMode::Selection);
         assert!(
             matches!(&line, Some(Note::Problem(problem))
                 if problem.ends_with("is already the hotkey to capture display")),
@@ -1475,7 +1479,7 @@ mod tests {
         assert!(!file(&app).path.exists(), "nothing saved");
 
         press(&mut app, Code::Escape, Held::empty());
-        assert_eq!(hotkey_line(&app, CaptureMode::Window), None, "cancelled");
+        assert_eq!(hotkey_line(&app, CaptureMode::Selection), None, "cancelled");
         assert_eq!(fake.registered_hotkeys(), defaults());
     }
 
@@ -1486,16 +1490,16 @@ mod tests {
         fake.reserve_hotkey(held_elsewhere);
         send(&mut app, Message::Open);
 
-        send(&mut app, Message::Record(CaptureMode::Rectangle));
+        send(&mut app, Message::Record(CaptureMode::Selection));
         press(&mut app, Code::F5, Held::LOGO);
 
         assert_eq!(
-            app.config.hotkeys.get(CaptureMode::Rectangle),
+            app.config.hotkeys.get(CaptureMode::Selection),
             held_elsewhere
         );
         assert_eq!(on_disk(&app).hotkeys, app.config.hotkeys);
         assert_eq!(
-            hotkey_line(&app, CaptureMode::Rectangle),
+            hotkey_line(&app, CaptureMode::Selection),
             Some(Note::Problem(
                 "Not active: another program has registered it".into()
             ))
@@ -1507,7 +1511,7 @@ mod tests {
             .iter()
             .map(|binding| binding.mode)
             .collect();
-        assert_eq!(active, [CaptureMode::Display, CaptureMode::Window]);
+        assert_eq!(active, [CaptureMode::Display]);
     }
 
     #[test]
@@ -1522,10 +1526,10 @@ mod tests {
         assert_eq!(fake.registered_hotkeys(), defaults());
         assert_eq!(on_disk(&app).hotkeys, Hotkeys::default());
 
-        // Display's default, given to Window while Display had another.
+        // Display's default, given to Selection while Display had another.
         send(&mut app, Message::Record(CaptureMode::Display));
         press(&mut app, Code::KeyK, Held::LOGO);
-        send(&mut app, Message::Record(CaptureMode::Window));
+        send(&mut app, Message::Record(CaptureMode::Selection));
         press(&mut app, Code::Digit3, Held::CTRL | Held::ALT | Held::SHIFT);
         send(&mut app, Message::DefaultHotkey(CaptureMode::Display));
         assert_eq!(
@@ -1535,7 +1539,7 @@ mod tests {
         let line = hotkey_line(&app, CaptureMode::Display);
         assert!(
             matches!(&line, Some(Note::Problem(problem))
-                if problem.ends_with("is already the hotkey to capture window")),
+                if problem.ends_with("is already the hotkey to capture selection")),
             "{line:?}"
         );
     }
@@ -1546,7 +1550,7 @@ mod tests {
         send(&mut app, Message::Open);
         send(&mut app, Message::Record(CaptureMode::Display));
 
-        edit(&mut app, "[hotkeys]\nwindow = \"Super+F2\"\n");
+        edit(&mut app, "[hotkeys]\nselection = \"Super+F2\"\n");
         assert!(fake.registered_hotkeys().is_empty(), "still recording");
 
         press(&mut app, Code::Escape, Held::empty());
@@ -1564,29 +1568,25 @@ mod tests {
         let path = file(&app).path.clone();
 
         send(&mut app, Message::Record(CaptureMode::Display));
-        fs::write(
-            &path,
-            "[hotkeys]\nwindow = \"Super+F2\"\nrectangle = \"Super+K\"\n",
-        )
-        .unwrap();
+        fs::write(&path, "[hotkeys]\nselection = \"Super+F2\"\n").unwrap();
         press(&mut app, Code::KeyJ, Held::LOGO);
         let saved = on_disk(&app).hotkeys;
         assert_eq!(saved.get(CaptureMode::Display), hotkey("Super+J"));
-        assert_eq!(saved.get(CaptureMode::Window), hotkey("Super+F2"));
+        assert_eq!(saved.get(CaptureMode::Selection), hotkey("Super+F2"));
         assert_eq!(app.config.hotkeys, saved);
         assert_eq!(fake.registered_hotkeys(), hotkeys::bindings(&saved));
 
         // Given meanwhile to the mode another is recorded with: the file wins.
-        send(&mut app, Message::Record(CaptureMode::Window));
+        send(&mut app, Message::Record(CaptureMode::Selection));
         fs::write(
             &path,
-            "[hotkeys]\ndisplay = \"Super+J\"\nwindow = \"Super+F2\"\nrectangle = \"Super+L\"\n",
+            "[hotkeys]\ndisplay = \"Super+L\"\nselection = \"Super+F2\"\n",
         )
         .unwrap();
         press(&mut app, Code::KeyL, Held::LOGO);
         let saved = on_disk(&app).hotkeys;
-        assert_eq!(saved.get(CaptureMode::Window), hotkey("Super+F2"));
-        assert_eq!(saved.get(CaptureMode::Rectangle), hotkey("Super+L"));
+        assert_eq!(saved.get(CaptureMode::Display), hotkey("Super+L"));
+        assert_eq!(saved.get(CaptureMode::Selection), hotkey("Super+F2"));
         assert_eq!(app.config.hotkeys, saved);
         assert_eq!(fake.registered_hotkeys(), hotkeys::bindings(&saved));
     }
@@ -1650,10 +1650,10 @@ mod tests {
         let (mut app, fake, _temp) = app_with_file();
         fake.reserve_hotkey(hotkey("Super+F5"));
 
-        edit(&mut app, "[hotkeys]\nwindow = \"Super+F5\"\n");
+        edit(&mut app, "[hotkeys]\nselection = \"Super+F5\"\n");
 
         assert_eq!(
-            app.config.hotkeys.get(CaptureMode::Window),
+            app.config.hotkeys.get(CaptureMode::Selection),
             hotkey("Super+F5")
         );
         assert_eq!(alerts(&app), 1);
@@ -1662,7 +1662,7 @@ mod tests {
             .iter()
             .map(|binding| binding.mode)
             .collect();
-        assert_eq!(active, [CaptureMode::Display, CaptureMode::Rectangle]);
+        assert_eq!(active, [CaptureMode::Display]);
     }
 
     #[test]

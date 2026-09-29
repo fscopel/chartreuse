@@ -14,8 +14,7 @@
 //!
 //! [hotkeys]
 //! display = "Ctrl+Alt+Shift+3"
-//! window = "Ctrl+Alt+Shift+5"
-//! rectangle = "Ctrl+Alt+Shift+4"
+//! selection = "Ctrl+Alt+Shift+4"
 //! ```
 //!
 //! Hotkeys use [`Hotkey`]'s text form (canonical `Ctrl+Alt+Shift+Super+Key`,
@@ -210,33 +209,23 @@ impl From<RelativeSaveDirectory> for chartreuse_core::Error {
 
 /// The global hotkey of each capture mode. No two modes share a hotkey.
 ///
-/// The defaults are Ctrl+Alt+Shift+3 (display), +5 (window) and +4
-/// (rectangle), echoing the system screenshot shortcuts (Shift+Command+3/4/5)
-/// without clashing with them.
+/// The defaults are Ctrl+Alt+Shift+3 (display) and +4 (selection), echoing the
+/// system screenshot shortcuts (Shift+Command+3/4) without clashing with them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "HotkeysText", into = "HotkeysText")]
 pub struct Hotkeys {
     display: Hotkey,
-    window: Hotkey,
-    rectangle: Hotkey,
+    selection: Hotkey,
 }
 
 impl Hotkeys {
-    /// The hotkeys for capturing a display, a window, and a rectangle.
+    /// The hotkeys for capturing a display and a selection.
     ///
     /// # Errors
     ///
-    /// [`DuplicateHotkey`] if two of them are the same.
-    pub fn new(
-        display: Hotkey,
-        window: Hotkey,
-        rectangle: Hotkey,
-    ) -> Result<Self, DuplicateHotkey> {
-        let hotkeys = Self {
-            display,
-            window,
-            rectangle,
-        };
+    /// [`DuplicateHotkey`] if they are the same.
+    pub fn new(display: Hotkey, selection: Hotkey) -> Result<Self, DuplicateHotkey> {
+        let hotkeys = Self { display, selection };
         hotkeys.check()?;
         Ok(hotkeys)
     }
@@ -246,8 +235,7 @@ impl Hotkeys {
     pub const fn get(&self, mode: CaptureMode) -> Hotkey {
         match mode {
             CaptureMode::Display => self.display,
-            CaptureMode::Window => self.window,
-            CaptureMode::Rectangle => self.rectangle,
+            CaptureMode::Selection => self.selection,
         }
     }
 
@@ -273,15 +261,14 @@ impl Hotkeys {
     /// Every mode with its hotkey, in [`CaptureMode::ALL`] order: what to
     /// register with the OS.
     #[must_use]
-    pub fn bindings(&self) -> [(CaptureMode, Hotkey); 3] {
+    pub fn bindings(&self) -> [(CaptureMode, Hotkey); 2] {
         CaptureMode::ALL.map(|mode| (mode, self.get(mode)))
     }
 
     fn slot(&mut self, mode: CaptureMode) -> &mut Hotkey {
         match mode {
             CaptureMode::Display => &mut self.display,
-            CaptureMode::Window => &mut self.window,
-            CaptureMode::Rectangle => &mut self.rectangle,
+            CaptureMode::Selection => &mut self.selection,
         }
     }
 
@@ -304,8 +291,7 @@ impl Default for Hotkeys {
         let hotkey = |key| Hotkey::new(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SHIFT, key);
         Self {
             display: hotkey(Key::Digit3),
-            window: hotkey(Key::Digit5),
-            rectangle: hotkey(Key::Digit4),
+            selection: hotkey(Key::Digit4),
         }
     }
 }
@@ -343,8 +329,7 @@ impl From<DuplicateHotkey> for chartreuse_core::Error {
 #[serde(default)]
 struct HotkeysText {
     display: HotkeyText,
-    window: HotkeyText,
-    rectangle: HotkeyText,
+    selection: HotkeyText,
 }
 
 impl Default for HotkeysText {
@@ -357,8 +342,7 @@ impl From<Hotkeys> for HotkeysText {
     fn from(hotkeys: Hotkeys) -> Self {
         Self {
             display: HotkeyText(hotkeys.display),
-            window: HotkeyText(hotkeys.window),
-            rectangle: HotkeyText(hotkeys.rectangle),
+            selection: HotkeyText(hotkeys.selection),
         }
     }
 }
@@ -367,7 +351,7 @@ impl TryFrom<HotkeysText> for Hotkeys {
     type Error = DuplicateHotkey;
 
     fn try_from(text: HotkeysText) -> Result<Self, Self::Error> {
-        Self::new(text.display.0, text.window.0, text.rectangle.0)
+        Self::new(text.display.0, text.selection.0)
     }
 }
 
@@ -408,8 +392,7 @@ mod tests {
             settings.hotkeys.bindings(),
             [
                 (CaptureMode::Display, hotkey("Ctrl+Alt+Shift+3")),
-                (CaptureMode::Window, hotkey("Ctrl+Alt+Shift+5")),
-                (CaptureMode::Rectangle, hotkey("Ctrl+Alt+Shift+4")),
+                (CaptureMode::Selection, hotkey("Ctrl+Alt+Shift+4")),
             ]
         );
         assert_eq!(settings.save_directory, None);
@@ -429,10 +412,10 @@ mod tests {
     #[test]
     fn missing_keys_keep_their_defaults() {
         let settings =
-            from_toml("save_format = \"jpg\"\n[hotkeys]\nwindow = \"Cmd+F5\"\n").unwrap();
+            from_toml("save_format = \"jpg\"\n[hotkeys]\nselection = \"Cmd+F5\"\n").unwrap();
         assert_eq!(settings.save_format, SaveFormat::Jpeg);
         assert_eq!(
-            settings.hotkeys.get(CaptureMode::Window),
+            settings.hotkeys.get(CaptureMode::Selection),
             hotkey("Super+F5")
         );
         assert_eq!(
@@ -451,7 +434,7 @@ mod tests {
             after_capture: AfterCapture::SaveAndCopy,
             launch_at_login: true,
             confirm_close_unsaved: false,
-            hotkeys: Hotkeys::new(hotkey("Super+1"), hotkey("Super+2"), hotkey("Super+3")).unwrap(),
+            hotkeys: Hotkeys::new(hotkey("Super+1"), hotkey("Super+2")).unwrap(),
         };
         let text = toml_edit::ser::to_string(&settings).unwrap();
         assert!(text.contains("display = \"Super+1\""), "{text}");
@@ -468,11 +451,11 @@ mod tests {
 
     #[test]
     fn an_invalid_hotkey_is_rejected_with_its_text_and_reason() {
-        let error = from_toml("[hotkeys]\nrectangle = \"Ctrl+Hyper+4\"\n").unwrap_err();
+        let error = from_toml("[hotkeys]\nselection = \"Ctrl+Hyper+4\"\n").unwrap_err();
         let message = error.message();
         assert!(message.contains("\"Ctrl+Hyper+4\""), "{message}");
         assert!(message.contains("unknown modifier \"Hyper\""), "{message}");
-        let error = from_toml("[hotkeys]\nrectangle = \"\"\n").unwrap_err();
+        let error = from_toml("[hotkeys]\nselection = \"\"\n").unwrap_err();
         assert!(
             error.message().contains("hotkey is empty"),
             "{}",
@@ -482,11 +465,11 @@ mod tests {
 
     #[test]
     fn duplicate_hotkeys_are_rejected() {
-        let error = from_toml("[hotkeys]\nwindow = \"Ctrl+Alt+Shift+3\"\n").unwrap_err();
+        let error = from_toml("[hotkeys]\nselection = \"Ctrl+Alt+Shift+3\"\n").unwrap_err();
         let message = error.message();
         assert!(
             message.contains(
-                "Ctrl+Alt+Shift+3 is the hotkey of both Capture display and Capture window"
+                "Ctrl+Alt+Shift+3 is the hotkey of both Capture display and Capture selection"
             ),
             "{message}"
         );
@@ -495,12 +478,12 @@ mod tests {
     #[test]
     fn setting_a_hotkey_another_mode_uses_changes_nothing() {
         let mut hotkeys = Hotkeys::default();
-        let taken = hotkeys.get(CaptureMode::Rectangle);
+        let taken = hotkeys.get(CaptureMode::Selection);
         assert_eq!(
             hotkeys.set(CaptureMode::Display, taken),
             Err(DuplicateHotkey {
                 hotkey: taken,
-                modes: [CaptureMode::Rectangle, CaptureMode::Display],
+                modes: [CaptureMode::Selection, CaptureMode::Display],
             })
         );
         assert_eq!(hotkeys, Hotkeys::default());

@@ -33,11 +33,12 @@ pub trait Capture {
     /// Captures what the user picks in the platform's own capture interface,
     /// on platforms where Chartreuse cannot select by itself; `None` (the
     /// default) where there is no such interface. Resolves to `None` if the
-    /// user cancels.
+    /// user cancels. The interface opens only once the future is polled, so a
+    /// caller may drop it unpolled after learning there is one.
     ///
     /// Wayland has one, the Screenshot portal's interactive mode. Chartreuse
-    /// cannot list windows there, so window captures use it, and its overlays
-    /// cover a single output only, so rectangle captures on several do too.
+    /// cannot list windows there, so window selection hands over to it, and its
+    /// overlays cover a single output only, so selections on several do too.
     fn capture_interactively(&self) -> Option<BoxFuture<'static, Result<Option<Image>>>> {
         None
     }

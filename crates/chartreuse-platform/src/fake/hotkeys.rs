@@ -107,16 +107,16 @@ mod tests {
     #[test]
     fn conflicts_are_reported_per_binding_and_the_rest_stay_active() {
         let fake = Fake::new();
-        let window = binding(CaptureMode::Window, Key::Digit2);
-        let rectangle = binding(CaptureMode::Rectangle, Key::Digit3);
-        fake.reserve_hotkey(window.hotkey);
-        let registration = fake.register(&[window, rectangle]).unwrap();
+        let display = binding(CaptureMode::Display, Key::Digit2);
+        let selection = binding(CaptureMode::Selection, Key::Digit3);
+        fake.reserve_hotkey(display.hotkey);
+        let registration = fake.register(&[display, selection]).unwrap();
         assert_eq!(registration.failures.len(), 1);
         assert!(matches!(
             registration.failures[0],
-            (failed, Error::HotkeyUnavailable { hotkey, .. }) if failed == window && hotkey == window.hotkey
+            (failed, Error::HotkeyUnavailable { hotkey, .. }) if failed == display && hotkey == display.hotkey
         ));
-        assert_eq!(fake.registered_hotkeys(), [rectangle]);
+        assert_eq!(fake.registered_hotkeys(), [selection]);
     }
 
     #[test]

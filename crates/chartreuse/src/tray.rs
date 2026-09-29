@@ -140,7 +140,7 @@ mod tests {
         assert!(into_recipes(subscription(&app)).is_empty());
         let _ = app.update(AppMessage::Tray(Message::Install));
 
-        let action = MenuAction::Capture(CaptureMode::Window);
+        let action = MenuAction::Capture(CaptureMode::Selection);
         assert!(matches!(choose(&app, &fake, action), Message::Menu(chosen) if chosen == action));
     }
 

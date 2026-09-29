@@ -65,8 +65,7 @@ impl Hotkeys for WaylandHotkeys {
 fn shortcut_id(mode: CaptureMode) -> &'static str {
     match mode {
         CaptureMode::Display => "capture-display",
-        CaptureMode::Window => "capture-window",
-        CaptureMode::Rectangle => "capture-rectangle",
+        CaptureMode::Selection => "capture-selection",
     }
 }
 

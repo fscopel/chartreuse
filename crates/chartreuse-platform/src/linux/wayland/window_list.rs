@@ -2,7 +2,7 @@
 //! their own windows (the protocol has no global window list, and the
 //! compositor-specific ones, such as wlr-foreign-toplevel, carry no
 //! geometry), so window selection over a frozen screenshot is impossible.
-//! Window capture instead goes through the Screenshot portal's own window
+//! Window selection instead hands over to the Screenshot portal's own window
 //! picker (see [`WaylandCapture`](super::capture::WaylandCapture)).
 
 use chartreuse_core::window::WindowInfo;

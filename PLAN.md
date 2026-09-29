@@ -81,13 +81,12 @@ profile. An optimized local build is still a development build.
 
 ### Global hotkeys
 
-Three independently configurable hotkeys:
+Two independently configurable hotkeys:
 
 | Action | Behavior |
 |---|---|
 | **Capture display** | Captures all displays immediately and opens the result in the editor. |
-| **Capture window** | Enters window-selection mode. |
-| **Capture rectangle** | Enters rectangle-selection mode. |
+| **Capture selection** | Enters rectangle-selection mode; Space switches to window-selection mode and back. |
 
 Hotkeys are registered system-wide and work regardless of which application has focus.
 Registration failures (e.g. a key combination already taken by another program) are
@@ -101,6 +100,7 @@ reported to the user.
 - The overlay shows a *frozen* image of the screen taken at the moment the hotkey was
   pressed, so transient content (menus, tooltips, hover states) can be captured.
 - Escape cancels. Releasing the pointer commits the selection and opens the editor.
+- Space, while no drag is in progress, switches to window selection.
 - Selections may span displays.
 
 ### Window-selection overlay
@@ -108,7 +108,8 @@ reported to the user.
 - A translucent overlay covers every display.
 - The window under the pointer is left undimmed to indicate that clicking will capture
   it; the highlight follows the pointer as it moves between windows.
-- Clicking captures that window. Escape cancels.
+- Clicking captures that window. Escape cancels. Space switches back to rectangle
+  selection.
 
 ### Editor window
 
@@ -133,7 +134,7 @@ reported to the user.
 
 ### Settings
 
-- Configure the three hotkeys.
+- Configure the two hotkeys.
 - Default save location and filename pattern.
 - Default post-capture behavior (e.g. open editor vs. copy directly to clipboard).
 - Settings are persisted to a configuration file in the platform's standard config
@@ -179,11 +180,11 @@ flowchart LR
 ### Capture flow
 
 1. A hotkey fires.
-2. The capture backend immediately captures every display (and, for window mode, the
+2. The capture backend immediately captures every display (and, for a selection, the
    current window list) at native resolution.
 3. For *capture display*, go straight to the editor.
-4. For rectangle or window mode, open an overlay window on each display showing the
-   frozen capture.
+4. For *capture selection*, open an overlay window on each display showing the frozen
+   capture, in rectangle mode; Space switches between rectangle and window mode.
 5. On commit, crop the frozen capture to the selection (rectangle mode) or capture the
    chosen window directly (window mode; see [Decisions](#decisions)) and open the editor.
 
@@ -265,9 +266,9 @@ directly, so behavior here is more constrained.
 Known Wayland limitations:
 
 - Window-selection mode with Chartreuse's own highlight overlay is not possible on
-  compositors that do not expose window geometry; it falls back to the portal's
-  interactive picker.
-- A CLI entry point (e.g. `chartreuse capture rectangle`) signaling the running
+  compositors that do not expose window geometry; Space hands the capture over to the
+  portal's interactive picker instead.
+- A CLI entry point (e.g. `chartreuse capture selection`) signaling the running
   instance is needed for compositors without GlobalShortcuts portal support.
 
 ## Build system

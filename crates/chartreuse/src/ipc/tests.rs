@@ -124,9 +124,9 @@ fn a_command_reaches_the_app_and_its_answer_the_client() {
     let test = test_endpoint();
     let requests = serve(claim(&test.endpoint)).unwrap();
 
-    let sent = send_in_background(&test.endpoint, Command::Capture(CaptureMode::Rectangle));
+    let sent = send_in_background(&test.endpoint, Command::Capture(CaptureMode::Selection));
     let request = next_request(&requests);
-    assert_eq!(request.command(), &Command::Capture(CaptureMode::Rectangle));
+    assert_eq!(request.command(), &Command::Capture(CaptureMode::Selection));
     request.answer(Ok(()));
     sent.join().unwrap().unwrap();
 
@@ -157,9 +157,9 @@ fn malformed_requests_are_refused_without_reaching_the_app() {
     // A client that leaves without a request is no trouble either.
     drop(transport::connect(&test.endpoint).unwrap());
 
-    let sent = send_in_background(&test.endpoint, Command::Capture(CaptureMode::Window));
+    let sent = send_in_background(&test.endpoint, Command::Capture(CaptureMode::Selection));
     let request = next_request(&requests);
-    assert_eq!(request.command(), &Command::Capture(CaptureMode::Window));
+    assert_eq!(request.command(), &Command::Capture(CaptureMode::Selection));
     request.answer(Ok(()));
     sent.join().unwrap().unwrap();
     assert!(
@@ -273,23 +273,23 @@ fn commands_are_what_the_status_item_sends() {
 fn a_received_capture_starts_and_a_second_one_is_refused() {
     let (mut app, _fake) = App::for_test();
     assert_eq!(
-        receive(&mut app, Command::Capture(CaptureMode::Rectangle)),
+        receive(&mut app, Command::Capture(CaptureMode::Selection)),
         Ok(())
     );
-    assert_eq!(app.capture.in_progress(), Some(CaptureMode::Rectangle));
+    assert_eq!(app.capture.in_progress(), Some(CaptureMode::Selection));
     let overlays = count(&app, WindowKind::Overlay);
     assert!(overlays > 0, "the selection overlays opened");
 
-    let refused = receive(&mut app, Command::Capture(CaptureMode::Window));
+    let refused = receive(&mut app, Command::Capture(CaptureMode::Display));
     assert_eq!(refused, Err("a capture is already in progress".to_owned()));
-    assert_eq!(app.capture.in_progress(), Some(CaptureMode::Rectangle));
+    assert_eq!(app.capture.in_progress(), Some(CaptureMode::Selection));
     assert_eq!(count(&app, WindowKind::Overlay), overlays);
 }
 
 #[test]
 fn a_command_whose_client_stopped_waiting_does_not_run() {
     let (mut app, _fake) = App::for_test();
-    let (request, answer) = Request::new(Command::Capture(CaptureMode::Rectangle));
+    let (request, answer) = Request::new(Command::Capture(CaptureMode::Selection));
     // The client was told the command was not taken before the app got to it.
     assert!(answer.wait(Duration::ZERO).is_err());
 
@@ -306,7 +306,7 @@ fn a_received_file_opens_in_an_editor_even_during_a_capture() {
     write_sample(&path);
 
     assert_eq!(
-        receive(&mut app, Command::Capture(CaptureMode::Window)),
+        receive(&mut app, Command::Capture(CaptureMode::Selection)),
         Ok(())
     );
     assert_eq!(receive(&mut app, Command::Open(path)), Ok(()));
@@ -323,7 +323,7 @@ fn boot_runs_the_command_lines_command() {
     let (mut app, _fake) = App::for_test();
     assert!(iced_runtime::task::into_stream(boot(&mut app)).is_none());
 
-    app.ipc = State::new(None, Some(Command::Capture(CaptureMode::Window)));
+    app.ipc = State::new(None, Some(Command::Capture(CaptureMode::Selection)));
     let actions: Vec<Action<AppMessage>> = iced_runtime::task::into_stream(boot(&mut app))
         .map(|stream| block_on(stream.collect()))
         .unwrap_or_default();
@@ -331,7 +331,7 @@ fn boot_runs_the_command_lines_command() {
         matches!(
             actions.as_slice(),
             [Action::Output(AppMessage::Capture(
-                capture::Message::Start(CaptureMode::Window)
+                capture::Message::Start(CaptureMode::Selection)
             ))]
         ),
         "{actions:?}"

@@ -413,19 +413,20 @@ Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/windows
         expected). From a terminal the logs stay in the terminal.
   - [ ] Tray: left click, right click, and keyboard (Win+B, Enter) open the menu; each
         entry works; Quit exits. Restart Explorer (Task Manager): the icon comes back.
-  - [ ] Hotkeys: the three defaults (shown in Settings) start their captures, also
+  - [ ] Hotkeys: the two defaults (shown in Settings) start their captures, also
         while another app is in front; a combination another app holds is reported.
   - [ ] Display capture: one image with every monitor at its place and native
         resolution, no gaps on the mixed-DPI pair; no yellow capture border and no
         Chartreuse overlay in it.
-  - [ ] Rectangle capture: each overlay covers exactly its monitor (no offset, gap, or
+  - [ ] Selection: each overlay covers exactly its monitor (no offset, gap, or
         overlap at the mixed-DPI seam), sits above the taskbar, shows in neither the
-        taskbar nor Alt+Tab, and takes Escape at once; a drag across both monitors
-        crops the same area as on screen; Escape cancels.
-  - [ ] Window capture: the highlight follows the pointer on both monitors, including
-        windows spanning them and UWP apps (Settings, Calculator); a click captures the
-        whole window even where others cover it; minimized windows, windows on other
-        virtual desktops, and Chartreuse's own are not offered.
+        taskbar nor Alt+Tab, and takes Escape and Space at once; a drag across both
+        monitors crops the same area as on screen; Escape cancels.
+  - [ ] Window selection (Space in the selection overlays): the highlight follows the
+        pointer on both monitors, including windows spanning them and UWP apps
+        (Settings, Calculator); a click captures the whole window even where others
+        cover it; minimized windows, windows on other virtual desktops, and
+        Chartreuse's own are not offered; Space again goes back to the rectangle.
   - [ ] Editor: Ctrl+Z, Ctrl+Shift+Z, Delete, and text entry; Save shows the Windows
         save dialog with PNG, JPEG, and WebP; Copy pastes into Paint and Word, keeping
         transparency where the target supports it.
@@ -439,7 +440,7 @@ Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/windows
         out and back in: Chartreuse starts, its tray icon appears, and no console
         window stays open. Turned off in Task Manager's Startup apps, it shows as off
         in Settings; turned off in Settings, the value is gone.
-  - [ ] Command line while running: `chartreuse.exe capture rectangle` in PowerShell
+  - [ ] Command line while running: `chartreuse.exe capture selection` in PowerShell
         exits 0 and its overlays take the keyboard focus; during a capture it exits 1
         with the reason; without a command it says Chartreuse is already running. The
         README's desktop shortcut works.
@@ -496,21 +497,21 @@ Depends on: Stage 2 integration complete. Owns: `chartreuse-platform/src/linux/`
         turning it on fails, and the note under the toggle says how to allow it.
   - [ ] X11: the default hotkeys start captures, and a combination another client
         grabbed is reported. Display capture places every monitor with `Xft.dpi` set
-        (e.g. 144). Rectangle overlays cover each monitor exactly, above panels and
-        full-screen windows, and take Escape without a click. Window capture with a
-        compositor running captures a covered window whole; without one (Xfce with
-        compositing off) it captures the screen area. Copy pastes into GIMP or
+        (e.g. 144). Selection overlays cover each monitor exactly, above panels and
+        full-screen windows, and take Escape and Space without a click. Window capture
+        with a compositor running captures a covered window whole; without one (Xfce
+        with compositing off) it captures the screen area. Copy pastes into GIMP or
         LibreOffice, also after Chartreuse quits (with a clipboard manager).
   - [ ] Wayland, display capture: the first capture asks through the portal; a
         refusal shows an alert (not the macOS guidance); an allowed capture places every
         output at fractional (125%, 150%) and mixed scales.
-  - [ ] Wayland, window capture: the portal's picker opens (GNOME, KDE) and the pick
-        opens in an editor; cancelling it ends the capture without an alert. On Sway,
-        the whole desktop opens.
-  - [ ] Wayland, rectangle capture: on one output the overlay is full screen above
-        the top bar or panels and takes Escape (GNOME's focus-stealing prevention may
-        withhold the focus); the crop matches the selection. On two outputs the
-        portal's picker opens instead.
+  - [ ] Wayland, window selection: Space in the selection overlay closes it and the
+        portal's picker opens (GNOME, KDE); the pick opens in an editor; cancelling it
+        ends the capture without an alert. On Sway, the whole desktop opens.
+  - [ ] Wayland, selection: on one output the overlay is full screen above the top
+        bar or panels and takes Escape (GNOME's focus-stealing prevention may withhold
+        the focus); the crop matches the selection. On two outputs the portal's picker
+        opens instead.
   - [ ] Wayland hotkeys: GNOME 48+ and KDE show the GlobalShortcuts dialog and then
         trigger; on Sway a shortcut bound as in the README runs the command.
   - [ ] Wayland clipboard: Copy pastes into another app, and Open from clipboard reads
@@ -523,7 +524,7 @@ Depends on: Stage 2 integration complete. Owns: an `ipc` module in the app crate
 CLI argument parsing. It can run in parallel with 4A and 4B.
 
 - [x] Single-instance detection and an IPC channel to the running instance
-- [x] `chartreuse capture {display,window,rectangle}` and `chartreuse open <file>`
+- [x] `chartreuse capture {display,selection}` and `chartreuse open <file>`
 - [x] Document binding a desktop shortcut to the CLI
 
 ## Stage 5 — Packaging (M10, parallel per platform)

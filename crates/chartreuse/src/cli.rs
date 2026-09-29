@@ -20,7 +20,7 @@
 //! running, so those launches are single-instance already and arguments given
 //! through them (`open --args`) never reach a running instance. The command
 //! line is the executable inside the bundle, run directly or through a
-//! symlink: `"Chartreuse Dev.app/Contents/MacOS/chartreuse" capture window`.
+//! symlink: `"Chartreuse Dev.app/Contents/MacOS/chartreuse" capture selection`.
 //! Keep the app running (e.g. as a login item) before using it: an instance
 //! started from a terminal is the terminal's child, and macOS holds the
 //! terminal responsible for its Screen Recording permission.
@@ -67,18 +67,15 @@ pub enum Action {
 pub enum Mode {
     /// The whole desktop, every display
     Display,
-    /// The window you click
-    Window,
-    /// The rectangle you drag
-    Rectangle,
+    /// The rectangle you drag, or the window you click after pressing Space
+    Selection,
 }
 
 impl From<Mode> for CaptureMode {
     fn from(mode: Mode) -> Self {
         match mode {
             Mode::Display => Self::Display,
-            Mode::Window => Self::Window,
-            Mode::Rectangle => Self::Rectangle,
+            Mode::Selection => Self::Selection,
         }
     }
 }
@@ -149,8 +146,7 @@ mod tests {
     fn capture_takes_each_mode() {
         for (word, mode) in [
             ("display", CaptureMode::Display),
-            ("window", CaptureMode::Window),
-            ("rectangle", CaptureMode::Rectangle),
+            ("selection", CaptureMode::Selection),
         ] {
             assert_eq!(
                 command(&["capture", word]),

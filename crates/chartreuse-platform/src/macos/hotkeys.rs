@@ -597,11 +597,11 @@ mod tests {
 
     #[test]
     fn the_handler_claims_only_its_own_hotkey_ids() {
-        let window = binding(
-            CaptureMode::Window,
+        let selection = binding(
+            CaptureMode::Selection,
             Hotkey::new(Modifiers::SUPER | Modifiers::SHIFT, Key::F19),
         );
-        let (context, events) = context(vec![(7, window)]);
+        let (context, events) = context(vec![(7, selection)]);
         let ours = EventHotKeyID {
             signature: SIGNATURE,
             id: 7,
@@ -616,8 +616,8 @@ mod tests {
         assert_eq!(
             events.try_recv(),
             Some(HotkeyEvent {
-                mode: CaptureMode::Window,
-                hotkey: window.hotkey
+                mode: CaptureMode::Selection,
+                hotkey: selection.hotkey
             })
         );
     }
@@ -821,12 +821,12 @@ mod tests {
     fn unsupported_keys_fail_alone() {
         let _carbon = CARBON.lock();
         with_free_hotkeys(1, |hotkeys| {
-            let rectangle = binding(CaptureMode::Rectangle, hotkeys[0]);
+            let selection = binding(CaptureMode::Selection, hotkeys[0]);
             let screen = binding(
                 CaptureMode::Display,
                 Hotkey::new(Modifiers::SHIFT, Key::PrintScreen),
             );
-            let (registered, failures, _events) = register(&[screen, rectangle]);
+            let (registered, failures, _events) = register(&[screen, selection]);
             let (unsupported, others): (Vec<_>, Vec<_>) = failures
                 .into_iter()
                 .partition(|(failed, _)| *failed == screen);
@@ -839,7 +839,7 @@ mod tests {
             );
             needed(&others, "registering the supported key")?;
             assert_eq!(registered.hotkeys.len(), 1);
-            id_of(&registered, rectangle);
+            id_of(&registered, selection);
             Ok(())
         });
     }
@@ -848,32 +848,32 @@ mod tests {
     fn presses_reach_the_registration_that_owns_the_hotkey() {
         let _carbon = CARBON.lock();
         with_free_hotkeys(2, |hotkeys| {
-            let window = binding(CaptureMode::Window, hotkeys[0]);
-            let rectangle = binding(CaptureMode::Rectangle, hotkeys[1]);
-            let (first, failures, first_events) = register(&[window]);
+            let display = binding(CaptureMode::Display, hotkeys[0]);
+            let selection = binding(CaptureMode::Selection, hotkeys[1]);
+            let (first, failures, first_events) = register(&[display]);
             needed(&failures, "registering the first set")?;
-            let (second, failures, second_events) = register(&[rectangle]);
+            let (second, failures, second_events) = register(&[selection]);
             needed(&failures, "registering the second set")?;
-            let (window_id, rectangle_id) = (id_of(&first, window), id_of(&second, rectangle));
+            let (display_id, selection_id) = (id_of(&first, display), id_of(&second, selection));
 
-            assert_eq!(press(rectangle_id), ffi::noErr);
+            assert_eq!(press(selection_id), ffi::noErr);
             assert_eq!(first_events.try_recv(), None);
             assert_eq!(
                 second_events.try_recv(),
                 Some(HotkeyEvent {
-                    mode: CaptureMode::Rectangle,
-                    hotkey: rectangle.hotkey
+                    mode: CaptureMode::Selection,
+                    hotkey: selection.hotkey
                 })
             );
-            assert_eq!(press(window_id), ffi::noErr);
+            assert_eq!(press(display_id), ffi::noErr);
             assert_eq!(
                 first_events.try_recv().map(|event| event.mode),
-                Some(CaptureMode::Window)
+                Some(CaptureMode::Display)
             );
 
             // Once dropped, nobody claims the old id.
             drop(first);
-            assert_eq!(press(window_id), ffi::eventNotHandledErr);
+            assert_eq!(press(display_id), ffi::eventNotHandledErr);
             assert_eq!(second_events.try_recv(), None);
             Ok(())
         });

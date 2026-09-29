@@ -10,10 +10,11 @@
 //! - Interactively ([`Capture::capture_interactively`]): the portal's own
 //!   dialog lets the user pick a window (GNOME, KDE), and on GNOME an area
 //!   or a display as well; wlroots portals capture the whole desktop instead.
-//!   The app uses it for window captures, since Wayland cannot list windows
-//!   (see [`WaylandWindowList`](super::window_list::WaylandWindowList)), and
-//!   for rectangle captures on several outputs, which the overlays cannot
-//!   cover (see [`WaylandOverlayStyle`](super::overlay_style::WaylandOverlayStyle)).
+//!   The app hands window selection over to it, since Wayland cannot list
+//!   windows (see [`WaylandWindowList`](super::window_list::WaylandWindowList)):
+//!   Space in the selection overlays opens it. It also takes whole selections
+//!   on several outputs, which the overlays cannot cover (see
+//!   [`WaylandOverlayStyle`](super::overlay_style::WaylandOverlayStyle)).
 //!   A listed window ([`Capture::capture_window`]) is never asked for.
 //!
 //! The portal saves each screenshot as a PNG file (GNOME in the Pictures

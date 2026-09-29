@@ -419,8 +419,7 @@ mod tests {
             after_capture: AfterCapture::Copy,
             launch_at_login: true,
             confirm_close_unsaved: false,
-            hotkeys: Hotkeys::new(hotkey("Super+F1"), hotkey("Super+F2"), hotkey("Super+F3"))
-                .unwrap(),
+            hotkeys: Hotkeys::new(hotkey("Super+F1"), hotkey("Super+F2")).unwrap(),
         }
     }
 
@@ -554,18 +553,18 @@ enabled = true
         let (_directory, path) = scratch();
         fs::write(
             &path,
-            "hotkeys = { display = \"F1\", window = \"F2\" }\nfile_name = \"a {date}\"\n",
+            "hotkeys = { display = \"F1\", selection = \"F2\" }\nfile_name = \"a {date}\"\n",
         )
         .unwrap();
         let mut settings = load(&path).unwrap();
         settings
             .hotkeys
-            .set(CaptureMode::Window, hotkey("F9"))
+            .set(CaptureMode::Selection, hotkey("F9"))
             .unwrap();
         save(&path, &settings).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         assert!(
-            text.contains("hotkeys = { display = \"F1\", window = \"F9\""),
+            text.contains("hotkeys = { display = \"F1\", selection = \"F9\""),
             "{text}"
         );
         assert!(!text.contains("[hotkeys]"), "{text}");
@@ -597,7 +596,7 @@ enabled = true
         let (_directory, path) = scratch();
         fs::write(
             &path,
-            "[hotkeys]\nwindow = \"F2\"\ndisplay = \"Ctrl+Nope\"\n",
+            "[hotkeys]\nselection = \"F2\"\ndisplay = \"Ctrl+Nope\"\n",
         )
         .unwrap();
         let message = config_error(load(&path));
@@ -618,7 +617,10 @@ enabled = true
             ("launch_at_login = \"yes\"\n", "key launch_at_login"),
             ("save_directory = \"relative\"\n", "key save_directory"),
             ("file_name = \"a/b\"\n", "key file_name"),
-            ("[hotkeys]\nwindow = \"Ctrl+Alt+Shift+3\"\n", "key hotkeys"),
+            (
+                "[hotkeys]\nselection = \"Ctrl+Alt+Shift+3\"\n",
+                "key hotkeys",
+            ),
         ] {
             let message = config_error(
                 parse(text)

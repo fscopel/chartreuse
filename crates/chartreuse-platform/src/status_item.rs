@@ -22,8 +22,7 @@ impl MenuAction {
     pub fn label(self) -> String {
         match self {
             Self::Capture(CaptureMode::Display) => "Capture Display".into(),
-            Self::Capture(CaptureMode::Window) => "Capture Window".into(),
-            Self::Capture(CaptureMode::Rectangle) => "Capture Rectangle".into(),
+            Self::Capture(CaptureMode::Selection) => "Capture Selection".into(),
             Self::OpenFromClipboard => "Open from Clipboard".into(),
             Self::OpenFromFile => "Open File…".into(),
             Self::Settings => "Settings…".into(),
@@ -42,8 +41,7 @@ pub enum MenuEntry {
 /// The status item menu, top to bottom. Every backend shows exactly this.
 pub const MENU: &[MenuEntry] = &[
     MenuEntry::Action(MenuAction::Capture(CaptureMode::Display)),
-    MenuEntry::Action(MenuAction::Capture(CaptureMode::Window)),
-    MenuEntry::Action(MenuAction::Capture(CaptureMode::Rectangle)),
+    MenuEntry::Action(MenuAction::Capture(CaptureMode::Selection)),
     MenuEntry::Separator,
     MenuEntry::Action(MenuAction::OpenFromClipboard),
     MenuEntry::Action(MenuAction::OpenFromFile),

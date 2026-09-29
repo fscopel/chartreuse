@@ -6,7 +6,7 @@
 //!
 //! | Request | Command |
 //! |---|---|
-//! | `capture display`, `capture window`, `capture rectangle` | [`Command::Capture`] |
+//! | `capture display`, `capture selection` | [`Command::Capture`] |
 //! | `open <absolute path>` | [`Command::Open`] |
 //!
 //! The reply is `ok` once the instance has taken the command, or
@@ -172,8 +172,7 @@ pub fn read_line(reader: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
 pub(super) const fn mode_word(mode: CaptureMode) -> &'static str {
     match mode {
         CaptureMode::Display => "display",
-        CaptureMode::Window => "window",
-        CaptureMode::Rectangle => "rectangle",
+        CaptureMode::Selection => "selection",
     }
 }
 
@@ -278,11 +277,10 @@ mod tests {
 
     #[test]
     fn requests_are_the_documented_lines() {
-        // Other clients (e.g. `printf 'capture window\n' | nc -U …`) rely on these.
+        // Other clients (e.g. `printf 'capture selection\n' | nc -U …`) rely on these.
         let capture = |mode| encode_request(&Command::Capture(mode)).unwrap();
         assert_eq!(capture(CaptureMode::Display), b"capture display\n");
-        assert_eq!(capture(CaptureMode::Window), b"capture window\n");
-        assert_eq!(capture(CaptureMode::Rectangle), b"capture rectangle\n");
+        assert_eq!(capture(CaptureMode::Selection), b"capture selection\n");
         assert_eq!(encode_reply(&Ok(())), b"ok\n");
         assert_eq!(encode_reply(&Err("no".into())), b"error no\n");
     }
@@ -369,8 +367,11 @@ mod tests {
 
     #[test]
     fn lines_are_read_one_at_a_time() {
-        let mut reader = Cursor::new(b"capture window\nok\n\n".to_vec());
-        assert_eq!(read_line(&mut reader).unwrap().unwrap(), b"capture window");
+        let mut reader = Cursor::new(b"capture selection\nok\n\n".to_vec());
+        assert_eq!(
+            read_line(&mut reader).unwrap().unwrap(),
+            b"capture selection"
+        );
         assert_eq!(read_line(&mut reader).unwrap().unwrap(), b"ok");
         assert_eq!(read_line(&mut reader).unwrap().unwrap(), b"");
         assert_eq!(

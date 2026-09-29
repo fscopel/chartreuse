@@ -199,9 +199,8 @@ mod tests {
     #[test]
     fn boot_leaves_registering_the_configured_hotkeys_to_update() {
         let (mut app, fake) = App::for_test();
-        let [display, window, rectangle] =
-            [Key::F1, Key::F2, Key::F3].map(|key| Hotkey::new(Modifiers::SUPER, key));
-        app.config.hotkeys = Hotkeys::new(display, window, rectangle).unwrap();
+        let [display, selection] = [Key::F1, Key::F2].map(|key| Hotkey::new(Modifiers::SUPER, key));
+        app.config.hotkeys = Hotkeys::new(display, selection).unwrap();
         let _ = boot(&mut app);
         assert!(fake.registered_hotkeys().is_empty());
 
@@ -214,12 +213,8 @@ mod tests {
                     hotkey: display
                 },
                 HotkeyBinding {
-                    mode: CaptureMode::Window,
-                    hotkey: window
-                },
-                HotkeyBinding {
-                    mode: CaptureMode::Rectangle,
-                    hotkey: rectangle
+                    mode: CaptureMode::Selection,
+                    hotkey: selection
                 },
             ]
         );
@@ -272,40 +267,38 @@ mod tests {
     fn taken_hotkeys_are_reported_in_one_alert() {
         let (mut app, fake) = App::for_test();
         let display = binding(CaptureMode::Display, Key::Digit1);
-        let window = binding(CaptureMode::Window, Key::Digit2);
-        let rectangle = binding(CaptureMode::Rectangle, Key::Digit3);
+        let selection = binding(CaptureMode::Selection, Key::Digit2);
         fake.reserve_hotkey(display.hotkey);
-        fake.reserve_hotkey(window.hotkey);
+        fake.reserve_hotkey(selection.hotkey);
 
-        let _ = reregister(&mut app, vec![display, window, rectangle]);
+        let _ = reregister(&mut app, vec![display, selection]);
         assert_eq!(alerts(&app), 1);
-        assert_eq!(fake.registered_hotkeys(), [rectangle]);
-        assert!(fake.press_hotkey(rectangle.hotkey));
+        assert!(fake.registered_hotkeys().is_empty());
     }
 
     #[test]
     fn replacing_leaves_reporting_to_the_caller_and_tells_what_failed_per_mode() {
         let (mut app, fake) = App::for_test();
         let display = binding(CaptureMode::Display, Key::Digit1);
-        let window = binding(CaptureMode::Window, Key::Digit2);
-        fake.reserve_hotkey(window.hotkey);
+        let selection = binding(CaptureMode::Selection, Key::Digit2);
+        fake.reserve_hotkey(selection.hotkey);
 
-        let notice = replace(&mut app, &[display, window]);
+        let notice = replace(&mut app, &[display, selection]);
         assert_eq!(
             notice.map(|notice| notice.title).as_deref(),
             Some("Hotkey unavailable")
         );
         assert_eq!(alerts(&app), 0);
         assert!(matches!(
-            app.hotkeys.problem(CaptureMode::Window),
-            Some(Error::HotkeyUnavailable { hotkey, .. }) if *hotkey == window.hotkey
+            app.hotkeys.problem(CaptureMode::Selection),
+            Some(Error::HotkeyUnavailable { hotkey, .. }) if *hotkey == selection.hotkey
         ));
         assert!(app.hotkeys.problem(CaptureMode::Display).is_none());
 
         // Once it registers, the problem is gone.
-        let window = binding(CaptureMode::Window, Key::Digit3);
-        assert_eq!(replace(&mut app, &[display, window]), None);
-        assert!(app.hotkeys.problem(CaptureMode::Window).is_none());
+        let selection = binding(CaptureMode::Selection, Key::Digit3);
+        assert_eq!(replace(&mut app, &[display, selection]), None);
+        assert!(app.hotkeys.problem(CaptureMode::Selection).is_none());
     }
 
     #[test]
@@ -326,15 +319,15 @@ mod tests {
     fn the_failure_notice_lists_every_failing_combination() {
         let fake = chartreuse_platform::fake::Fake::new();
         let display = binding(CaptureMode::Display, Key::Digit1);
-        let window = binding(CaptureMode::Window, Key::Digit2);
+        let selection = binding(CaptureMode::Selection, Key::Digit2);
         fake.reserve_hotkey(display.hotkey);
-        fake.reserve_hotkey(window.hotkey);
-        let registration = fake.register(&[display, window]).unwrap();
+        fake.reserve_hotkey(selection.hotkey);
+        let registration = fake.register(&[display, selection]).unwrap();
 
         let notice = failure_notice(&registration.failures).unwrap();
         let lines: Vec<&str> = notice.body.lines().collect();
         assert_eq!(lines.len(), 2, "{}", notice.body);
-        for (line, failed) in lines.iter().zip([display, window]) {
+        for (line, failed) in lines.iter().zip([display, selection]) {
             assert!(line.contains(&failed.hotkey.to_string()), "{line}");
             assert!(line.contains(&failed.mode.to_string()), "{line}");
             assert!(line.contains("another program has registered it"), "{line}");
@@ -353,16 +346,16 @@ mod tests {
         assert_eq!(fake.registered_hotkeys(), defaults());
         assert_eq!(alerts(&app), 0);
 
-        let window = binding(CaptureMode::Window, Key::W);
-        let _ = reregister(&mut app, vec![window]);
-        assert_eq!(fake.registered_hotkeys(), [window]);
+        let selection = binding(CaptureMode::Selection, Key::W);
+        let _ = reregister(&mut app, vec![selection]);
+        assert_eq!(fake.registered_hotkeys(), [selection]);
         assert!(!fake.press_hotkey(defaults()[0].hotkey));
-        assert!(fake.press_hotkey(window.hotkey));
+        assert!(fake.press_hotkey(selection.hotkey));
         let registration = app.hotkeys.registration.as_ref().unwrap();
         assert_ne!(registration.events, old_events, "a new subscription");
         assert_eq!(
             registration.events.try_recv().map(|event| event.mode),
-            Some(CaptureMode::Window)
+            Some(CaptureMode::Selection)
         );
     }
 

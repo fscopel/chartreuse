@@ -9,8 +9,8 @@ system tray. See [PLAN.md](PLAN.md) for what it does and how it is built, and
 ```sh
 chartreuse                     # start Chartreuse in the menu bar or tray
 chartreuse capture display     # capture the whole desktop
-chartreuse capture window      # capture the window you click
-chartreuse capture rectangle   # capture the rectangle you drag
+chartreuse capture selection   # capture the rectangle you drag, or press Space and
+                               # capture the window you click
 chartreuse open <file>         # open an image file in an editor window
 chartreuse --help              # or --version
 ```
@@ -30,7 +30,7 @@ bundle, run directly or through a symlink:
 
 ```sh
 ln -s /Applications/Chartreuse.app/Contents/MacOS/chartreuse /usr/local/bin/chartreuse
-"target/debug/Chartreuse Dev.app/Contents/MacOS/chartreuse" capture window  # dev build
+"target/debug/Chartreuse Dev.app/Contents/MacOS/chartreuse" capture selection  # dev build
 ```
 
 Starting the app from Finder, the Dock, `open`, or a login item goes through
@@ -48,24 +48,24 @@ Sway and other wlroots compositors), bind a desktop shortcut to the command line
 Use the full path to the executable if it is not on the shortcut daemon's `PATH`.
 
 - **GNOME**: *Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts →
-  Add Shortcut*, with the command `chartreuse capture rectangle`.
+  Add Shortcut*, with the command `chartreuse capture selection`.
 - **KDE Plasma**: *System Settings → Keyboard → Shortcuts → Add New → Command or
-  Script…*, with the command `chartreuse capture rectangle`, then assign the key.
+  Script…*, with the command `chartreuse capture selection`, then assign the key.
   (Plasma 5: *Custom Shortcuts → Edit → New → Global Shortcut → Command/URL*.)
 - **Sway** (`~/.config/sway/config`):
 
   ```
-  bindsym $mod+Shift+4 exec chartreuse capture rectangle
+  bindsym $mod+Shift+4 exec chartreuse capture selection
   ```
 
 - **Hyprland** (`~/.config/hypr/hyprland.conf`):
 
   ```
-  bind = SUPER SHIFT, 4, exec, chartreuse capture rectangle
+  bind = SUPER SHIFT, 4, exec, chartreuse capture selection
   ```
 
 - **Windows**: right-click the desktop, *New → Shortcut*, with the location
-  `"C:\path\to\chartreuse.exe" capture rectangle`. In the shortcut's *Properties*,
+  `"C:\path\to\chartreuse.exe" capture selection`. In the shortcut's *Properties*,
   set a *Shortcut key* (Windows makes it Ctrl+Alt+*key*), and *Run: Minimized*, since
   the command line is a console program and would flash a console window. Windows
   honors shortcut keys only for shortcuts on the desktop or in the Start menu folder.
@@ -87,7 +87,7 @@ what to try.
 | Hotkeys | Carbon hot keys | `RegisterHotKey` | `XGrabKey` | GlobalShortcuts portal |
 | Display capture | ScreenCaptureKit | Windows.Graphics.Capture, else `BitBlt` | MIT-SHM | Screenshot portal |
 | Rectangle selection | Overlay per display | Overlay per display | Overlay per display | Full-screen overlay; the portal's picker on several displays |
-| Window selection | Overlay per display | Overlay per display | Overlay per display | The portal's picker |
+| Window selection | Overlay per display | Overlay per display | Overlay per display | Space hands over to the portal's picker |
 | Window capture | ScreenCaptureKit, with shadow | Windows.Graphics.Capture, else `PrintWindow`; no shadow | XComposite | The portal's picker |
 | Clipboard | `NSPasteboard` | PNG and `CF_DIBV5` | `CLIPBOARD` selection | Data-control protocols; XWayland on GNOME |
 | File dialogs | `NSOpenPanel`, `NSSavePanel` | `IFileOpenDialog`, `IFileSaveDialog` | FileChooser portal | FileChooser portal |
@@ -147,16 +147,17 @@ own windows, so the desktop's portals do much of the work:
   which the desktop may ask the user to allow the first time. A refusal is reported.
   The screenshot is assumed to show the desktop's logical layout at one scale, as
   GNOME's and grim's do.
-- Rectangle selection: winit offers no layer-shell, so the overlay is a full-screen
-  window on the output the compositor chooses. That covers a single-output desktop;
-  with several outputs, rectangle captures go to the portal's own picker instead.
-- Window selection is the portal's own picker.
+- Selection: winit offers no layer-shell, so the overlay is a full-screen window on
+  the output the compositor chooses. That covers a single-output desktop; with
+  several outputs, selections go to the portal's own picker instead.
+- Window selection is the portal's own picker: Space in the overlay hands the capture
+  over to it.
 - The portal saves each screenshot as a file (GNOME in the Pictures folder), which
   Chartreuse deletes once read.
 
 | | GNOME | KDE Plasma | Sway, Hyprland, and others |
 |---|---|---|---|
-| Portal picker (window captures; rectangles on several outputs) | GNOME's screenshot UI: an area, a window, or a screen | The portal's dialog | xdg-desktop-portal-wlr has none and captures the whole desktop; other portals vary |
+| Portal picker (window selection; selections on several outputs) | GNOME's screenshot UI: an area, a window, or a screen | The portal's dialog | xdg-desktop-portal-wlr has none and captures the whole desktop; other portals vary |
 | Hotkeys | GlobalShortcuts portal, GNOME 48 and later | GlobalShortcuts portal | Hyprland's portal has it; on Sway and others [bind a shortcut](#binding-a-desktop-shortcut) |
 | Clipboard | Through XWayland | `ext-data-control` / `wlr-data-control` | `ext-data-control` / `wlr-data-control` |
 | Tray | AppIndicator extension | Built in | Panels with a tray (Waybar, …) |
