@@ -8,14 +8,15 @@
 //! logical desktop coordinates**, owned by the app, built from the display
 //! layout and the window list taken with the captures. Each window draws a
 //! [`WindowOverlay`] canvas for its display, which leaves that display's part
-//! of the hovered window undimmed and reports pointer and Escape input, already
-//! converted to global coordinates, back to the app. The hovered window is the
-//! frontmost one under the pointer
+//! of the hovered window undimmed and reports pointer, Escape and Space input,
+//! already converted to global coordinates, back to the app. The hovered window
+//! is the frontmost one under the pointer
 //! ([`topmost_at`](chartreuse_core::window::topmost_at)), so the highlight
 //! follows the pointer between windows and between displays.
 //!
 //! A click on a window commits its [`WindowId`](chartreuse_core::window::WindowId);
-//! a click on no window is ignored; Escape cancels.
+//! a click on no window is ignored; Escape cancels. Space is the app's to act
+//! on: the app switches back to rectangle selection with it.
 //!
 //! # Using it from the app
 //!

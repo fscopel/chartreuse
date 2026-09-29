@@ -39,6 +39,10 @@ pub enum Input {
     Release(LogicalPoint),
     /// Escape was pressed.
     Escape,
+    /// Space was pressed, with the pointer at this point if it is over the
+    /// overlay. Not part of the gesture, which ignores it: the app may switch
+    /// to another kind of selection with it.
+    Space(Option<LogicalPoint>),
 }
 
 /// How a selection ended.
@@ -71,6 +75,7 @@ pub enum Outcome {
 ///   [`Phase::Idle`]. A release without a drag (a click) also goes back to idle,
 ///   so the user can simply try again.
 /// - **Escape** cancels from any non-terminal phase, mid-drag included.
+/// - **Space** is ignored.
 ///
 /// Every point is clamped to the desktop's bounding rectangle
 /// ([`DisplayLayout::bounds`]) first, so dragging past the edge of the desktop
@@ -144,6 +149,7 @@ impl Selection {
             }
             Input::Release(point) => self.release(point),
             Input::Escape => self.escape(),
+            Input::Space(_) => None,
         }
     }
 

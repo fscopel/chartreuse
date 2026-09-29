@@ -27,6 +27,10 @@ pub enum Input {
     Click(LogicalPoint),
     /// Escape was pressed.
     Escape,
+    /// Space was pressed, with the pointer at this point if it is over the
+    /// overlay. Not part of the selection, which ignores it: the app may switch
+    /// to another kind of selection with it.
+    Space(Option<LogicalPoint>),
 }
 
 /// How a window selection ended.
@@ -57,6 +61,7 @@ pub enum Outcome {
 ///   window. A click where no window is hovered (on the bare desktop, or in a
 ///   gap) is ignored, so the user can simply click again or press Escape.
 /// - **Escape** cancels.
+/// - **Space** is ignored.
 ///
 /// Once committed or cancelled, later input is ignored and the pointer and
 /// hovered window stay as they were, so the overlays keep showing the committed
@@ -133,6 +138,7 @@ impl WindowSelection {
             }
             Input::Click(point) => self.click(point),
             Input::Escape => self.escape(),
+            Input::Space(_) => None,
         }
     }
 

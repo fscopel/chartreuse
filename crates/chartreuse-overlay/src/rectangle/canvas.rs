@@ -17,14 +17,15 @@ const LABEL_GAP: f32 = 6.0;
 /// border in the accent color, and a label with the output size in pixels.
 ///
 /// Build one per overlay window from the shared [`Selection`] in each `view` and
-/// show it with [`RectangleOverlay::view`]. It turns pointer and Escape events
-/// into [`Input`] in global logical coordinates and publishes them through
+/// show it with [`RectangleOverlay::view`]. It turns pointer, Escape and Space
+/// events into [`Input`] in global logical coordinates and publishes them through
 /// `on_input`; route them all to the one [`Selection::apply`]. The window that
 /// receives the press keeps receiving the drag (the OS grabs the pointer), even
 /// over other displays: its positions simply map outside its own display.
 ///
-/// Only the primary (left) button selects. Escape is heard by the focused
-/// overlay window, so give an overlay focus when opening them.
+/// Only the primary (left) button selects. Escape and Space are heard by the
+/// focused overlay window, so give an overlay focus when opening them. Space
+/// repeats while held are not published.
 ///
 /// As a [`Program`] it draws only what goes over the capture:
 /// [`RectangleOverlay::view`] puts the capture in a layer of its own underneath
@@ -135,6 +136,16 @@ where
                 state.pressed = false;
                 Input::Escape
             }
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(keyboard::key::Named::Space),
+                repeat: false,
+                ..
+            }) => Input::Space(
+                cursor
+                    .position()
+                    .filter(|p| bounds.contains(*p))
+                    .map(|position| projection.to_global(position)),
+            ),
             _ => return None,
         };
         Some(Action::publish((self.on_input)(input)).and_capture())
@@ -415,5 +426,35 @@ mod tests {
             send(&selection, 3, &mut state, &escape, None),
             Some(Input::Escape)
         );
+    }
+
+    fn space(repeat: bool) -> Event {
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(Named::Space),
+            modified_key: keyboard::Key::Named(Named::Space),
+            physical_key: Physical::Code(keyboard::key::Code::Space),
+            location: Location::Standard,
+            modifiers: Modifiers::default(),
+            text: Some(" ".into()),
+            repeat,
+        })
+    }
+
+    #[test]
+    fn space_is_published_with_the_pointer_over_this_display() {
+        let selection = Selection::new(layout());
+        let mut state = PointerState::default();
+        let over = Some(Point::new(50.0, 60.0));
+        assert_eq!(
+            send(&selection, 1, &mut state, &space(false), over),
+            Some(Input::Space(Some(pt(50.0, 60.0))))
+        );
+        let outside = Some(Point::new(-5.0, 10.0));
+        assert_eq!(
+            send(&selection, 1, &mut state, &space(false), outside),
+            Some(Input::Space(None))
+        );
+        // Holding Space down publishes it once.
+        assert_eq!(send(&selection, 1, &mut state, &space(true), over), None);
     }
 }

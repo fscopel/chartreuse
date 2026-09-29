@@ -7,9 +7,10 @@
 //! selection: a [`Selection`] in **global logical desktop coordinates**, owned by
 //! the app. Each window draws a [`RectangleOverlay`] canvas for its display,
 //! which renders that display's slice of the shared selection and reports
-//! pointer and Escape input, already converted to global coordinates, back to the
-//! app. A drag may start on one display and end on another; the selection simply
-//! spans both.
+//! pointer, Escape and Space input, already converted to global coordinates,
+//! back to the app. A drag may start on one display and end on another; the
+//! selection simply spans both. Space is the app's to act on: the app switches
+//! to window selection with it.
 //!
 //! # Using it from the app
 //!
