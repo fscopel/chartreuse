@@ -21,8 +21,8 @@ use chartreuse_core::color::Rgba8;
 use chartreuse_core::geometry::PhysicalRect;
 
 use super::geometry::{
-    distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_triangle, Point,
-    Rect, Size, Vector,
+    distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_tapered_segment,
+    distance_to_triangle, Point, Rect, Size, Vector,
 };
 use super::style::{Style, StyleFields};
 
@@ -104,8 +104,9 @@ impl Shape {
     ///
     /// - Line: within `stroke_width / 2 + tolerance` of the segment (so the hit
     ///   area has round caps, like the stroke; see [`Style`]).
-    /// - Arrow: as a line along the shaft (`start` to [`ArrowHead::base`]), or
-    ///   within `tolerance` of the filled [`ArrowHead`] triangle.
+    /// - Arrow: within `tolerance` of the tapered shaft (`start` to
+    ///   [`ArrowHead::base`]; see [`Arrow`]) or of the filled [`ArrowHead`]
+    ///   triangle.
     /// - Rectangle: within `stroke_width / 2 + tolerance` of the outline, its
     ///   corners rounded to [`Rectangle::radius`] (so the outer corners are
     ///   rounded, like the stroke's round joins, even at a radius of zero).
@@ -130,7 +131,9 @@ impl Shape {
             Self::Line(line) => distance_to_segment(point, line.start, line.end) <= reach,
             Self::Arrow(arrow) => match arrow.head(style.stroke_width) {
                 Some(head) => {
-                    distance_to_segment(point, arrow.start, head.base) <= reach
+                    let (tail, base) = Arrow::shaft_radii(style.stroke_width);
+                    distance_to_tapered_segment(point, arrow.start, tail, head.base, base)
+                        <= tolerance
                         || distance_to_triangle(point, head.corners()) <= tolerance
                 }
                 None => distance_to_segment(point, arrow.start, arrow.end) <= reach,
@@ -156,18 +159,22 @@ impl Shape {
     /// The smallest rectangle containing everything the shape draws with
     /// `style`: strokes reach `stroke_width / 2` past their path in every
     /// direction (round caps and joins; see [`Style`]), arrows include their
-    /// head, text its background or layout box. Used for selection outlines
-    /// and marquee selection.
+    /// tapered shaft and head, text its background or layout box. Used for
+    /// selection outlines and marquee selection.
     #[must_use]
     pub fn bounds(&self, style: &Style) -> Rect {
         let half = half_stroke(style);
         match self {
             Self::Line(line) => Rect::from_corners(line.start, line.end).expand(half),
             Self::Arrow(arrow) => match arrow.head(style.stroke_width) {
-                Some(head) => Rect::from_corners(arrow.start, head.base)
-                    .expand(half)
-                    .union(&Rect::from_corners(head.left, head.right))
-                    .union(&Rect::from_corners(head.tip, head.tip)),
+                Some(head) => {
+                    let (tail, base) = Arrow::shaft_radii(style.stroke_width);
+                    Rect::from_corners(arrow.start, arrow.start)
+                        .expand(tail)
+                        .union(&Rect::from_corners(head.base, head.base).expand(base))
+                        .union(&Rect::from_corners(head.left, head.right))
+                        .union(&Rect::from_corners(head.tip, head.tip))
+                }
                 None => Rect::from_corners(arrow.start, arrow.end).expand(half),
             },
             Self::Rectangle(rectangle) => rectangle.rect.expand(half),
@@ -308,16 +315,21 @@ pub struct Line {
     pub end: Point,
 }
 
-/// A line with an arrowhead at `end`.
+/// A tapered line with an arrowhead at `end`.
 ///
-/// The head's geometry comes from [`Arrow::head`] so the canvas, flatten, and
-/// hit-testing agree on it. Renderers stroke the shaft from `start` to
-/// [`ArrowHead::base`] like any stroke (round caps; see [`Style`]), then fill
-/// the head triangle. The head covers the shaft's cap at the base, and ending
-/// the shaft there keeps a thick stroke from poking out past the head's point.
+/// The geometry comes from [`Arrow::head`] and [`Arrow::outline`] so the
+/// canvas, flatten, and hit-testing agree on it. The shaft runs from `start`
+/// to [`ArrowHead::base`], narrowing away from the head: it is the convex
+/// hull of a disc `stroke_width` across at the base and one
+/// [`TAIL_WIDTH_RATIO`](Self::TAIL_WIDTH_RATIO) as wide at `start`, so the
+/// tail is round. The head covers the shaft's round end at the base, and
+/// ending the shaft there keeps a thick shaft from poking out past the head's
+/// point. Renderers fill the outline, shaft and head in one path, never
+/// stroked, so a translucent arrow is one even tint.
+///
 /// An arrow shorter than its head's full length is all head (`base` is
-/// `start`, so the shaft is a dot there); a zero-length arrow has no head and
-/// draws a dot, like a zero-length line.
+/// `start`, so the shaft is the disc at the base); a zero-length arrow has no
+/// head and draws a dot `stroke_width` across, like a zero-length line.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arrow {
     pub start: Point,
@@ -333,6 +345,9 @@ impl Arrow {
     /// Head half-width (tip to either back corner, across) per unit of head
     /// length.
     pub const HEAD_HALF_WIDTH_RATIO: f32 = 0.5;
+    /// The shaft's width at the tail per unit of its width at the head (the
+    /// stroke width).
+    pub const TAIL_WIDTH_RATIO: f32 = 0.25;
 
     /// The arrowhead for a given stroke width: length
     /// `max(stroke_width × HEAD_LENGTH_PER_STROKE, MIN_HEAD_LENGTH)`, capped at the
@@ -358,6 +373,81 @@ impl Arrow {
             right: base + across,
         })
     }
+
+    /// The radii of the shaft's discs for a given stroke width: at the tail
+    /// (`start`) and at the head's base.
+    #[must_use]
+    pub fn shaft_radii(stroke_width: f32) -> (f32, f32) {
+        let base = stroke_width.max(0.0) / 2.0;
+        (base * Self::TAIL_WIDTH_RATIO, base)
+    }
+
+    /// The outline of the shaft and head together for a given stroke width,
+    /// as a closed path: a start point where the shaft's side leaves the
+    /// tail's disc, then that side to the base's disc, around it to the
+    /// head's back edge, the head (a back corner, the tip, the other back
+    /// corner), back around the base's disc, the other side back to the
+    /// tail, and the tail's round end. `None` for a zero-length arrow.
+    ///
+    /// The sides are tangent to both of the shaft's discs. Where the tail's
+    /// disc lies within the base's (an arrow that is all head, or nearly),
+    /// the shaft is the base's disc, its back half the round end.
+    #[must_use]
+    pub fn outline(&self, stroke_width: f32) -> Option<(Point, [PathSegment; 10])> {
+        let head = self.head(stroke_width)?;
+        let along = head.tip - head.base;
+        let u = along * (1.0 / along.length());
+        let n = u.perpendicular();
+        let (tail_radius, base_radius) = Self::shaft_radii(stroke_width);
+        let length = (head.base - self.start).length();
+        let (tail, tail_radius, lean) = if length > base_radius - tail_radius {
+            // The sides' outward normals lean back from straight across by
+            // this angle, as the shaft widens toward the head.
+            let lean = ((base_radius - tail_radius) / length).asin();
+            (self.start, tail_radius, lean)
+        } else {
+            (head.base, base_radius, 0.0)
+        };
+        // The direction at `angle` from `u` toward `n`, and its derivative.
+        let at = |angle: f32| u * angle.cos() + n * angle.sin();
+        let turning = |angle: f32| n * angle.cos() + u * -angle.sin();
+        // A cubic Bézier along the circle around `center` from angle `from`
+        // to `to` (at most a quarter turn).
+        let arc = |center: Point, radius: f32, from: f32, to: f32| {
+            let k = radius * 4.0 / 3.0 * ((to - from) / 4.0).tan();
+            let (a, b) = (center + at(from) * radius, center + at(to) * radius);
+            PathSegment::Cubic([a + turning(from) * k, b - turning(to) * k, b])
+        };
+        let half_pi = std::f32::consts::FRAC_PI_2;
+        // The sides' outward normals; straight across either way; straight
+        // back.
+        let (plus, minus) = (half_pi + lean, 3.0 * half_pi - lean);
+        let (right, left, back) = (half_pi, 3.0 * half_pi, 2.0 * half_pi);
+        Some((
+            tail + at(plus) * tail_radius,
+            [
+                PathSegment::Line(head.base + at(plus) * base_radius),
+                arc(head.base, base_radius, plus, right),
+                PathSegment::Line(head.right),
+                PathSegment::Line(head.tip),
+                PathSegment::Line(head.left),
+                PathSegment::Line(head.base + at(left) * base_radius),
+                arc(head.base, base_radius, left, minus),
+                PathSegment::Line(tail + at(minus) * tail_radius),
+                arc(tail, tail_radius, minus, back),
+                arc(tail, tail_radius, back, plus),
+            ],
+        ))
+    }
+}
+
+/// A piece of a path, from the point the path has reached.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PathSegment {
+    /// A straight line to the point.
+    Line(Point),
+    /// A cubic Bézier `[control, control, end]`.
+    Cubic([Point; 3]),
 }
 
 /// The filled triangle at an arrow's tip.
@@ -807,6 +897,25 @@ mod tests {
     }
 
     #[test]
+    fn arrow_shaft_narrows_toward_the_tail() {
+        // Head length 12, so the shaft is 4 wide at x = 88 and 1 at the tail.
+        let arrow = arrow(0.0, 0.0, 100.0, 0.0);
+        let style = style(4.0);
+        assert!(
+            arrow.hit(&style, Point::new(80.0, 1.8), 0.0),
+            "near the head"
+        );
+        assert!(
+            !arrow.hit(&style, Point::new(5.0, 1.8), 0.0),
+            "near the tail"
+        );
+        assert!(arrow.hit(&style, Point::new(5.0, 0.5), 0.0));
+        // The tail is round.
+        assert!(arrow.hit(&style, Point::new(-0.5, 0.0), 0.0));
+        assert!(!arrow.hit(&style, Point::new(-0.4, 0.4), 0.0));
+    }
+
+    #[test]
     fn zero_length_arrow_hits_like_a_dot() {
         let dot = arrow(5.0, 5.0, 5.0, 5.0);
         assert!(dot.hit(&style(4.0), Point::new(7.0, 5.0), 0.0));
@@ -905,10 +1014,11 @@ mod tests {
             line(10.0, 10.0, 30.0, 10.0).bounds(&style),
             Rect::from_corners(Point::new(8.0, 8.0), Point::new(32.0, 12.0))
         );
-        // Head length 12, half-width 6: wider than the stroke.
+        // Head length 12, half-width 6: wider than the stroke. The tail is a
+        // quarter as wide as the stroke.
         assert_eq!(
             arrow(0.0, 0.0, 100.0, 0.0).bounds(&style),
-            Rect::from_corners(Point::new(-2.0, -6.0), Point::new(100.0, 6.0))
+            Rect::from_corners(Point::new(-0.5, -6.0), Point::new(100.0, 6.0))
         );
     }
 

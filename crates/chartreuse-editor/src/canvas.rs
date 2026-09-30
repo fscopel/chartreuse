@@ -50,12 +50,11 @@
 //! point `p` is at `origin + p × scale`, and document lengths are multiplied
 //! by `scale`. Per annotation, in the annotation's color:
 //!
-//! - Strokes (a line, an arrow's shaft, a rectangle's or ellipse's outline, a
-//!   pen's path) are `stroke_width` wide, centered on the geometry, with
-//!   round caps and round joins. A zero-length stroke is a disc
-//!   `stroke_width` across.
-//! - An arrow is its shaft stroked from `start` to [`ArrowHead::base`], then
-//!   the head triangle `[tip, left, right]` filled (never stroked).
+//! - Strokes (a line, a rectangle's or ellipse's outline, a pen's path) are
+//!   `stroke_width` wide, centered on the geometry, with round caps and
+//!   round joins. A zero-length stroke is a disc `stroke_width` across.
+//! - An arrow is the closed path of [`Arrow::outline`], its tapered shaft
+//!   and head together, filled (never stroked). A zero-length arrow is a dot.
 //! - A rectangle is the closed path of [`Rectangle::outline`]: its edges and,
 //!   unless its [radius](crate::model::Rectangle::radius) is zero, the
 //!   Béziers rounding its corners.
@@ -101,7 +100,7 @@
 //! of 1 or more (so zoomed-in pixels stay crisp) and bilinearly below.
 //!
 //! [`Text::background`]: crate::model::Text::background
-//! [`ArrowHead::base`]: crate::model::ArrowHead::base
+//! [`Arrow::outline`]: crate::model::Arrow::outline
 //! [`Rectangle::outline`]: crate::model::Rectangle::outline
 //! [`Ellipse::curves`]: crate::model::Ellipse::curves
 //! [`highlighter::alpha`]: crate::model::highlighter::alpha

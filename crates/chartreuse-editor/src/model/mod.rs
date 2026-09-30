@@ -43,13 +43,13 @@ mod history;
 mod style;
 
 pub use annotation::{
-    highlighter, Annotation, AnnotationId, Arrow, ArrowHead, BlurRegion, Ellipse, Line, Polyline,
-    Rectangle, Shape, StepMarker, Text,
+    highlighter, Annotation, AnnotationId, Arrow, ArrowHead, BlurRegion, Ellipse, Line,
+    PathSegment, Polyline, Rectangle, Shape, StepMarker, Text,
 };
 pub use document::Document;
 pub use geometry::{
-    distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_triangle, Point,
-    Rect, Size, Vector,
+    distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_tapered_segment,
+    distance_to_triangle, Point, Rect, Size, Vector,
 };
 pub use history::{Command, Reorder};
 pub use style::{BlurMode, Style, StyleFields, StylePatch};

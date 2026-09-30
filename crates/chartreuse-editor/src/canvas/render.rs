@@ -13,7 +13,7 @@ use super::{Obscured, Viewport};
 use crate::flatten;
 use crate::font;
 use crate::model::{
-    highlighter, Point, Polyline, Rect, Shape, Size, StepMarker, Style, Text, Vector,
+    highlighter, PathSegment, Point, Polyline, Rect, Shape, Size, StepMarker, Style, Text, Vector,
 };
 use crate::tools::HANDLE_SIZE;
 
@@ -74,23 +74,25 @@ pub fn shape(
             width,
             paint,
         ),
-        Shape::Arrow(arrow) => {
-            let start = viewport.to_canvas(arrow.start);
-            match arrow.head(style.stroke_width) {
-                Some(head) => {
-                    stroke_segment(frame, start, viewport.to_canvas(head.base), width, paint);
-                    let [tip, left, right] = head.corners().map(|p| viewport.to_canvas(p));
-                    let triangle = Path::new(|path| {
-                        path.move_to(tip);
-                        path.line_to(left);
-                        path.line_to(right);
-                        path.close();
-                    });
-                    frame.fill(&triangle, paint);
-                }
-                None => dot(frame, start, width, paint),
+        Shape::Arrow(arrow) => match arrow.outline(style.stroke_width) {
+            Some((start, segments)) => {
+                let outline = Path::new(|path| {
+                    path.move_to(viewport.to_canvas(start));
+                    for segment in segments {
+                        match segment {
+                            PathSegment::Line(to) => path.line_to(viewport.to_canvas(to)),
+                            PathSegment::Cubic(curve) => {
+                                let [a, b, to] = curve.map(|p| viewport.to_canvas(p));
+                                path.bezier_curve_to(a, b, to);
+                            }
+                        }
+                    }
+                    path.close();
+                });
+                frame.fill(&outline, paint);
             }
-        }
+            None => dot(frame, viewport.to_canvas(arrow.start), width, paint),
+        },
         Shape::Rectangle(rectangle) => {
             let (start, corners) = rectangle.outline(style.corner_radius);
             let start = viewport.to_canvas(start);

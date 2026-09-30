@@ -356,6 +356,45 @@ pub fn distance_to_polyline(point: Point, points: &[Point]) -> f32 {
     }
 }
 
+/// The signed distance from `point` to a tapered segment: the convex hull of
+/// the disc of radius `start_radius` around `start` and the one of radius
+/// `end_radius` around `end` (both treated as zero if negative). Negative
+/// inside. If one disc contains the other, it is that disc.
+///
+/// Exact: the uneven capsule distance of Inigo Quilez's "2D distance
+/// functions".
+#[must_use]
+pub fn distance_to_tapered_segment(
+    point: Point,
+    start: Point,
+    start_radius: f32,
+    end: Point,
+    end_radius: f32,
+) -> f32 {
+    let (ra, rb) = (start_radius.max(0.0), end_radius.max(0.0));
+    let along = end - start;
+    let h = along.dot(along);
+    let b = ra - rb;
+    if h <= b * b {
+        let (center, radius) = if ra >= rb { (start, ra) } else { (end, rb) };
+        return point.distance(center) - radius;
+    }
+    let p = point - start;
+    // `point` in units of the segment's length: across it (folded to one
+    // side) and along it.
+    let q = Vector::new(p.cross(along).abs() / h, p.dot(along) / h);
+    // The direction of the sides, tangent to both discs.
+    let c = Vector::new((h - b * b).sqrt(), b);
+    let k = c.cross(q);
+    if k < 0.0 {
+        (h * q.dot(q)).sqrt() - ra
+    } else if k > c.x {
+        (h * (q.dot(q) + 1.0 - 2.0 * q.y)).sqrt() - rb
+    } else {
+        c.dot(q) - ra
+    }
+}
+
 /// The distance from `point` to the filled triangle `corners`: zero inside or on
 /// an edge, otherwise the distance to the nearest edge. Works for either
 /// winding and for degenerate (collinear) triangles.
@@ -506,6 +545,23 @@ mod tests {
         assert!(r.contains(Point::new(10.0, 5.0)));
         assert!(!r.contains(Point::new(10.001, 5.0)));
         assert!(!r.contains(Point::new(5.0, -0.001)));
+    }
+
+    #[test]
+    fn tapered_segment_distance_is_to_the_hull_of_its_end_discs() {
+        let (a, b) = (Point::ORIGIN, Point::new(10.0, 0.0));
+        let d = |x, y| distance_to_tapered_segment(Point::new(x, y), a, 1.0, b, 3.0);
+        // Beyond either end: the end's disc.
+        assert!(close(d(-3.0, 0.0), 2.0));
+        assert!(close(d(15.0, 0.0), 2.0));
+        // Beside it: the side, tangent to both discs, whose outward normal
+        // leans back by asin(0.2) and which touches the start's disc.
+        let cos = 0.96_f32.sqrt();
+        assert!(close(d(5.0, 10.0), 5.2 * -0.2 + (10.0 - cos) * cos));
+        assert!(close(d(5.0, 0.0), -2.0), "inside, 2 from either side");
+        // One disc inside the other is just that disc.
+        let nested = distance_to_tapered_segment(Point::new(0.0, 5.0), a, 1.0, a, 3.0);
+        assert!(close(nested, 2.0));
     }
 
     #[test]

@@ -5,9 +5,9 @@ use chartreuse_core::image::Image;
 use super::*;
 use crate::font;
 use crate::model::{
-    distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_triangle, Arrow,
-    BlurMode, BlurRegion, Command, Ellipse, Line, Polyline, Rect, Rectangle, StepMarker, Style,
-    Text,
+    distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_tapered_segment,
+    distance_to_triangle, Arrow, BlurMode, BlurRegion, Command, Ellipse, Line, Polyline, Rect,
+    Rectangle, StepMarker, Style, Text,
 };
 
 /// How far outside a shape's edge a pixel's center can be and still be
@@ -151,21 +151,22 @@ fn a_pen_stroke_is_its_path_stroked_with_round_joins() {
 }
 
 #[test]
-fn an_arrow_is_a_shaft_to_the_head_base_and_a_filled_head() {
+fn an_arrow_is_a_tapered_shaft_to_the_head_base_and_a_filled_head() {
     let image = base(80, 50);
     let arrow = Arrow {
         start: Point::new(8.0, 30.0),
         end: Point::new(70.0, 12.0),
     };
-    // Thick enough that a shaft stroked to the tip would poke out past it.
+    // Thick enough that a shaft running to the tip would poke out past it.
     let width = 8.0;
     let head = arrow.head(width).unwrap();
+    let (tail, base_radius) = Arrow::shaft_radii(width);
     let result = flattened(
         image.clone(),
         [(Shape::Arrow(arrow.clone()), style(BLUE, width))],
     );
     assert_covers(&image, &result, BLUE, |p| {
-        let shaft = distance_to_segment(p, arrow.start, head.base) - width / 2.0;
+        let shaft = distance_to_tapered_segment(p, arrow.start, tail, head.base, base_radius);
         // distance_to_triangle is 0 inside, so only the outside is checked
         // for the head; its interior is as deep as the shaft allows.
         shaft.min(distance_to_triangle(p, head.corners()))

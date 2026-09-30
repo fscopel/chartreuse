@@ -13,11 +13,12 @@ use chartreuse_core::color::Rgba8;
 ///
 /// # Strokes
 ///
-/// Every stroke (a line, an arrow's shaft, a rectangle's or ellipse's outline) is
+/// Every stroke (a line, a rectangle's or ellipse's outline, a pen's path) is
 /// `stroke_width` wide, centered on the annotation's geometry, with **round
 /// caps and round joins**: it covers exactly the points within
-/// `stroke_width / 2` of the stroked path. Filled parts (an arrowhead) are
-/// filled only, never stroked, so their corners stay sharp.
+/// `stroke_width / 2` of the stroked path. Filled shapes (an arrow, whose
+/// shaft tapers from `stroke_width` wide at its head) are filled only, never
+/// stroked, so their corners stay sharp.
 ///
 /// This is the editor's one stroke geometry. The model's hit areas and bounds
 /// are derived from it, and the canvas and flatten must draw it, so what the

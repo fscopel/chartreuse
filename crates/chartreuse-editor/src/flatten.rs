@@ -22,12 +22,12 @@
 //! Per annotation, in its [`Style`]'s color (straight alpha), exactly as the
 //! canvas docs describe:
 //!
-//! - Strokes (a line, an arrow's shaft, a rectangle's or ellipse's outline, a
-//!   pen's path) are `stroke_width` wide, centered on the geometry, with
-//!   round caps and round joins. A zero-length stroke is a disc
-//!   `stroke_width` across; a stroke width of zero (or less) draws nothing.
-//! - An arrow is its shaft stroked from `start` to [`ArrowHead::base`], then
-//!   the head triangle `[tip, left, right]` filled, never stroked.
+//! - Strokes (a line, a rectangle's or ellipse's outline, a pen's path) are
+//!   `stroke_width` wide, centered on the geometry, with round caps and
+//!   round joins. A zero-length stroke is a disc `stroke_width` across; a
+//!   stroke width of zero (or less) draws nothing.
+//! - An arrow is the closed path of [`Arrow::outline`], its tapered shaft
+//!   and head together, filled, never stroked. A zero-length arrow is a dot.
 //! - A rectangle is the closed path of [`Rectangle::outline`]: its edges and,
 //!   unless its [radius](crate::model::Rectangle::radius) is zero, the
 //!   Béziers rounding its corners.
@@ -81,7 +81,7 @@
 //! [tiny-skia]: https://docs.rs/tiny-skia/0.11
 //! [`SwashCache`]: iced::advanced::graphics::text::cosmic_text::SwashCache
 //! [`LayoutGlyph::physical`]: iced::advanced::graphics::text::cosmic_text::LayoutGlyph::physical
-//! [`ArrowHead::base`]: crate::model::ArrowHead::base
+//! [`Arrow::outline`]: crate::model::Arrow::outline
 //! [`Rectangle::outline`]: crate::model::Rectangle::outline
 //! [`Ellipse::curves`]: crate::model::Ellipse::curves
 //! [`font::layout`]: crate::font::layout
@@ -105,8 +105,8 @@ use tiny_skia::{
 
 use crate::font;
 use crate::model::{
-    highlighter, Annotation, BlurMode, BlurRegion, Document, Point, Polyline, Rect, Shape,
-    StepMarker, Style, Text,
+    highlighter, Annotation, BlurMode, BlurRegion, Document, PathSegment, Point, Polyline, Rect,
+    Shape, StepMarker, Style, Text,
 };
 
 /// The document's base image with every annotation drawn over it, bottom to
@@ -314,14 +314,18 @@ impl Flattener {
         let layer = &mut self.layer;
         match drawn.shape {
             Shape::Line(line) => polyline(layer, &[line.start, line.end], width, &paint, transform),
-            Shape::Arrow(arrow) => match arrow.head(style.stroke_width) {
-                Some(head) => {
-                    polyline(layer, &[arrow.start, head.base], width, &paint, transform);
-                    let [tip, left, right] = head.corners();
+            Shape::Arrow(arrow) => match arrow.outline(style.stroke_width) {
+                Some((start, segments)) => {
                     let mut path = PathBuilder::new();
-                    path.move_to(tip.x, tip.y);
-                    path.line_to(left.x, left.y);
-                    path.line_to(right.x, right.y);
+                    path.move_to(start.x, start.y);
+                    for segment in segments {
+                        match segment {
+                            PathSegment::Line(to) => path.line_to(to.x, to.y),
+                            PathSegment::Cubic([a, b, to]) => {
+                                path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
+                            }
+                        }
+                    }
                     path.close();
                     fill(layer, path.finish(), &paint, transform);
                 }
