@@ -9,7 +9,7 @@ use iced::widget::image::FilterMethod;
 use iced::{Color, Pixels, Point as CanvasPoint, Rectangle, Vector as CanvasVector};
 use tiny_skia::Transform;
 
-use super::{Obscured, Viewport};
+use super::{Obscured, Shadow, Viewport};
 use crate::flatten;
 use crate::font;
 use crate::model::{
@@ -181,6 +181,21 @@ pub fn obscured(frame: &mut Frame, viewport: &Viewport, obscured: &Obscured, bac
             } else {
                 FilterMethod::Linear
             })
+            .snap(true),
+    );
+}
+
+/// A shape's drop shadow (see the [canvas docs](super#drawing)).
+pub fn shadow(frame: &mut Frame, viewport: &Viewport, shadow: &Shadow) {
+    let rect = viewport.to_canvas_rect(Rect::from_pixels(shadow.pixels));
+    frame.draw_image(
+        Rectangle {
+            x: rect.x + IMAGE_NUDGE,
+            y: rect.y + IMAGE_NUDGE,
+            ..rect
+        },
+        canvas::Image::new(shadow.image.clone())
+            .filter_method(FilterMethod::Linear)
             .snap(true),
     );
 }

@@ -76,16 +76,45 @@ fn assert_covers(base: &Image, result: &Image, color: Rgba8, distance: impl Fn(P
     );
 }
 
+/// `image` with the shadow `shape` casts in `style` composited on it: what
+/// flatten leaves outside the shape.
+fn shadowed(image: &Image, shape: &Shape, style: &Style) -> Image {
+    let mut image = image.clone();
+    if let Some((pixels, shadow)) = cast_shadow(shape, style, image.size()) {
+        for (row, y) in (pixels.origin.y..)
+            .take(pixels.size.height as usize)
+            .enumerate()
+        {
+            for (column, x) in (pixels.origin.x..)
+                .take(pixels.size.width as usize)
+                .enumerate()
+            {
+                let src = shadow.pixel(column as u32, row as u32).unwrap();
+                let src = [src.red(), src.green(), src.blue(), src.alpha()];
+                let mut dst = image.pixel(x as u32, y as u32).unwrap().to_array();
+                source_over(&mut dst, &src);
+                let [r, g, b, a] = dst;
+                image.set_pixel(x as u32, y as u32, Rgba8::new(r, g, b, a));
+            }
+        }
+    }
+    image
+}
+
+/// Flattens `shape` in `style` (opaque) over `image` and checks the result
+/// with [`assert_covers`]: outside the shape, only its shadow shows.
+fn assert_draws(image: &Image, shape: Shape, style: Style, distance: impl Fn(Point) -> f32) {
+    let result = flattened(image.clone(), [(shape.clone(), style)]);
+    let outside = shadowed(image, &shape, &style);
+    assert_covers(&outside, &result, style.color, distance);
+}
+
 #[test]
 fn a_stroke_covers_exactly_the_points_within_half_its_width() {
     let image = base(60, 40);
     // Runs off the left edge: flattening clips to the image.
     let (a, b) = (Point::new(-10.0, 12.5), Point::new(45.3, 30.0));
-    let result = flattened(
-        image.clone(),
-        [(line(a.x, a.y, b.x, b.y), style(BLUE, 7.0))],
-    );
-    assert_covers(&image, &result, BLUE, |p| {
+    assert_draws(&image, line(a.x, a.y, b.x, b.y), style(BLUE, 7.0), |p| {
         distance_to_segment(p, a, b) - 3.5
     });
 }
@@ -100,11 +129,8 @@ fn a_rectangle_is_its_outline_with_its_corners_rounded() {
             corner_radius: radius,
             ..style(BLUE, 6.0)
         };
-        let result = flattened(
-            image.clone(),
-            [(Shape::Rectangle(Rectangle { rect }), style)],
-        );
-        assert_covers(&image, &result, BLUE, |p| {
+        let shape = Shape::Rectangle(Rectangle { rect });
+        assert_draws(&image, shape, style, |p| {
             rect.distance_to_outline(p, radius) - 3.0
         });
     }
@@ -114,11 +140,8 @@ fn a_rectangle_is_its_outline_with_its_corners_rounded() {
 fn an_ellipse_is_its_outline_stroked() {
     let image = base(70, 50);
     let rect = Rect::from_corners(Point::new(8.5, 6.0), Point::new(61.0, 44.25));
-    let result = flattened(
-        image.clone(),
-        [(Shape::Ellipse(Ellipse { rect }), style(BLUE, 6.0))],
-    );
-    assert_covers(&image, &result, BLUE, |p| {
+    let shape = Shape::Ellipse(Ellipse { rect });
+    assert_draws(&image, shape, style(BLUE, 6.0), |p| {
         distance_to_ellipse(p, rect) - 3.0
     });
 }
@@ -136,16 +159,10 @@ fn a_pen_stroke_is_its_path_stroked_with_round_joins() {
     .into_iter()
     .map(|(x, y)| Point::new(x, y))
     .collect();
-    let result = flattened(
-        image.clone(),
-        [(
-            Shape::Pen(Polyline {
-                points: points.clone(),
-            }),
-            style(BLUE, 5.0),
-        )],
-    );
-    assert_covers(&image, &result, BLUE, |p| {
+    let shape = Shape::Pen(Polyline {
+        points: points.clone(),
+    });
+    assert_draws(&image, shape, style(BLUE, 5.0), |p| {
         distance_to_polyline(p, &points) - 2.5
     });
 }
@@ -161,16 +178,17 @@ fn an_arrow_is_a_tapered_shaft_to_the_head_base_and_a_filled_head() {
     let width = 8.0;
     let head = arrow.head(width).unwrap();
     let (tail, base_radius) = Arrow::shaft_radii(width);
-    let result = flattened(
-        image.clone(),
-        [(Shape::Arrow(arrow.clone()), style(BLUE, width))],
+    assert_draws(
+        &image,
+        Shape::Arrow(arrow.clone()),
+        style(BLUE, width),
+        |p| {
+            let shaft = distance_to_tapered_segment(p, arrow.start, tail, head.base, base_radius);
+            // distance_to_triangle is 0 inside, so only the outside is checked
+            // for the head; its interior is as deep as the shaft allows.
+            shaft.min(distance_to_triangle(p, head.corners()))
+        },
     );
-    assert_covers(&image, &result, BLUE, |p| {
-        let shaft = distance_to_tapered_segment(p, arrow.start, tail, head.base, base_radius);
-        // distance_to_triangle is 0 inside, so only the outside is checked
-        // for the head; its interior is as deep as the shaft allows.
-        shaft.min(distance_to_triangle(p, head.corners()))
-    });
 }
 
 #[test]
@@ -190,8 +208,9 @@ fn zero_length_strokes_are_discs_and_zero_width_draws_nothing() {
             points: vec![center, center],
         }),
     ] {
-        let result = flattened(image.clone(), [(shape.clone(), style(BLUE, 10.0))]);
-        assert_covers(&image, &result, BLUE, |p| (p - center).length() - 5.0);
+        assert_draws(&image, shape.clone(), style(BLUE, 10.0), |p| {
+            (p - center).length() - 5.0
+        });
 
         let invisible = flattened(image.clone(), [(shape, style(BLUE, 0.0))]);
         assert!(invisible == image, "zero width drew something");
@@ -199,21 +218,49 @@ fn zero_length_strokes_are_discs_and_zero_width_draws_nothing() {
 }
 
 #[test]
+fn shapes_cast_a_soft_shadow_down_and_to_the_right() {
+    let white = Image::filled(PhysicalSize::new(60, 60), Rgba8::rgb(255, 255, 255));
+    // From y 28 to 32; its silhouette falls 2 lower, to y 34.
+    let result = flattened(white, [(line(10.0, 30.0, 50.0, 30.0), style(BLUE, 4.0))]);
+    let gray = |x, y| {
+        let pixel = result.pixel(x, y).unwrap();
+        assert!(pixel.r == pixel.g && pixel.g == pixel.b, "black over white");
+        pixel.r
+    };
+    let (under, below, above) = (gray(30, 33), gray(30, 36), gray(30, 26));
+    assert!(under < below && below < 255, "{under}, then {below} below");
+    assert!(above > under, "less above: {above}");
+    let darkest = 255.0 * (1.0 - shadow::OPACITY);
+    assert!(f32::from(under) >= darkest - 1.0, "subtle: {under}");
+    // Beyond the blur's spread, untouched.
+    assert_eq!(gray(30, 44), 255);
+}
+
+#[test]
 fn translucent_colors_blend_source_over_in_straight_alpha() {
+    // Text backgrounds, which cast no shadow to blend with.
     let clear = Image::filled(PhysicalSize::new(20, 20), Rgba8::new(0, 0, 0, 0));
     let white = Image::filled(PhysicalSize::new(20, 20), Rgba8::rgb(255, 255, 255));
     let red = Rgba8::new(255, 0, 0, 128);
-    let stroke = || [(line(0.0, 10.0, 20.0, 10.0), style(red, 8.0))];
+    let fill = || {
+        [(
+            Shape::Text(Text::new(Point::new(5.0, 5.0), "")),
+            Style {
+                text_background: red,
+                ..Style::default()
+            },
+        )]
+    };
 
     // Over nothing, the color itself: straight alpha, not darkened.
-    let over_clear = flattened(clear, stroke()).pixel(10, 10).unwrap();
+    let over_clear = flattened(clear, fill()).pixel(5, 10).unwrap();
     assert_eq!(over_clear, red);
     // Over white, half of each.
-    let over_white = flattened(white.clone(), stroke()).pixel(10, 10).unwrap();
+    let over_white = flattened(white.clone(), fill()).pixel(5, 10).unwrap();
     assert_eq!(over_white, Rgba8::rgb(255, 127, 127));
     // Two coats over white: the second blends over the first.
-    let twice = flattened(white, stroke().into_iter().chain(stroke()))
-        .pixel(10, 10)
+    let twice = flattened(white, fill().into_iter().chain(fill()))
+        .pixel(5, 10)
         .unwrap();
     assert_eq!(twice, Rgba8::rgb(255, 63, 63));
 }
@@ -239,6 +286,7 @@ fn a_step_marker_is_a_disc_with_its_derived_number_on_it() {
     let result = flatten(&document).unwrap();
 
     let radius = StepMarker::radius(style.font_size);
+    let outside = shadowed(&image, &marker(center.x), &style);
     let white = StepMarker::number_color(BLUE);
     let mut number = 0;
     for y in 0..image.height() {
@@ -247,7 +295,7 @@ fn a_step_marker_is_a_disc_with_its_derived_number_on_it() {
             let d = p.distance(center) - radius;
             let pixel = result.pixel(x, y).unwrap();
             if d > EDGE {
-                assert_eq!(pixel, image.pixel(x, y).unwrap(), "outside at ({x}, {y})");
+                assert_eq!(pixel, outside.pixel(x, y).unwrap(), "outside at ({x}, {y})");
             } else if d < -EDGE && d > -radius * 0.3 {
                 // The rim, clear of the number.
                 assert_eq!(pixel, BLUE, "rim at ({x}, {y})");
@@ -335,7 +383,8 @@ fn later_annotations_are_drawn_over_earlier_ones() {
         ],
     );
     assert_eq!(result.pixel(10, 10), Some(green));
-    assert_eq!(result.pixel(2, 10), Some(BLUE));
+    // Clear of the green line's shadow.
+    assert_eq!(result.pixel(0, 10), Some(BLUE));
 }
 
 #[test]
@@ -434,7 +483,9 @@ fn a_blur_region_obscures_only_what_is_beneath_it_within_its_pixels() {
         for x in 0..result.width() {
             let pixel = result.pixel(x, y).unwrap();
             let inside = pixels.contains(PhysicalPoint::new(x as i32, y as i32));
-            let near_above = (x as f32 + 0.5 - 40.0).abs() < 3.0 + EDGE;
+            // The line above, with its shadow.
+            let reach = 3.0 + shadow::OFFSET.x + shadow::SPREAD + EDGE;
+            let near_above = (x as f32 + 0.5 - 40.0).abs() < reach;
             if !inside {
                 assert_eq!(
                     pixel,

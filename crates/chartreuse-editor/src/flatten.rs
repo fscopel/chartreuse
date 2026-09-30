@@ -20,7 +20,10 @@
 //! # Drawing
 //!
 //! Per annotation, in its [`Style`]'s color (straight alpha), exactly as the
-//! canvas docs describe:
+//! canvas docs describe. A line, arrow, rectangle, ellipse, pen stroke, or
+//! step marker is first its [`shadow`], `cast_shadow`'s pixels: its
+//! silhouette (as below, in black at the color's alpha), moved, blurred, and
+//! faded, clipped to the image. Then:
 //!
 //! - Strokes (a line, a rectangle's or ellipse's outline, a pen's path) are
 //!   `stroke_width` wide, centered on the geometry, with round caps and
@@ -72,10 +75,12 @@
 //! # Adding a kind
 //!
 //! A new [`Shape`] variant needs one arm in the private `Flattener::draw`,
-//! built from its helpers. Kinds that act on what is beneath them, as blur
-//! regions do, `flush` first and then work on `Flattener::image`. A
-//! `Flattener` covers a window of the document (all of it, for [`flatten`]),
-//! so draw through `Flattener::transform`.
+//! built from its helpers; a plain shape's goes in `geometry`, which draws
+//! both it and, if it [casts](crate::model::shadow::casts) one, its shadow's
+//! silhouette. Kinds that act on what is beneath them, as blur regions do,
+//! `flush` first and then work on `Flattener::image`. A `Flattener` covers a
+//! window of the document (all of it, for [`flatten`]), so draw through
+//! `Flattener::transform`.
 //!
 //! [`Style`]: crate::model::Style
 //! [tiny-skia]: https://docs.rs/tiny-skia/0.11
@@ -95,18 +100,18 @@ mod text;
 
 use chartreuse_core::color::Rgba8;
 use chartreuse_core::error::{Error, Result};
-use chartreuse_core::geometry::{PhysicalPoint, PhysicalRect};
+use chartreuse_core::geometry::{PhysicalPoint, PhysicalRect, PhysicalSize};
 use chartreuse_core::image::Image;
 use chartreuse_imaging::region::clip;
 use tiny_skia::{
-    FillRule, FilterQuality, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, PixmapPaint,
-    Stroke, Transform,
+    FillRule, FilterQuality, IntSize, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap,
+    PixmapPaint, Stroke, Transform,
 };
 
 use crate::font;
 use crate::model::{
-    highlighter, Annotation, BlurMode, BlurRegion, Document, PathSegment, Point, Polyline, Rect,
-    Shape, StepMarker, Style, Text,
+    highlighter, shadow, Annotation, BlurMode, BlurRegion, Document, PathSegment, Point, Polyline,
+    Rect, Shape, StepMarker, Style, Text,
 };
 
 /// The document's base image with every annotation drawn over it, bottom to
@@ -130,7 +135,7 @@ pub fn flatten(document: &Document) -> Result<Image> {
     let image = if annotations.is_empty() || base.width() == 0 || base.height() == 0 {
         base.clone()
     } else {
-        let mut flattener = Flattener::new(base.clone(), PhysicalPoint::new(0, 0))?;
+        let mut flattener = Flattener::new(base.clone(), PhysicalPoint::new(0, 0), base.size())?;
         for annotation in annotations {
             flattener.draw(&Drawn::of(document, annotation));
         }
@@ -164,13 +169,18 @@ impl<'a> Drawn<'a> {
 
     /// A rectangle outside which the annotation draws nothing: its bounds,
     /// grown for anti-aliasing and for glyph ink overhanging text's layout
-    /// box.
+    /// box, and its shadow's reach.
     fn reach(&self) -> Rect {
         let slack = match self.shape {
             Shape::Text(_) | Shape::Step(_) => self.style.font_size.max(0.0),
             _ => 2.0,
         };
-        self.shape.bounds(self.style).expand(slack)
+        let reach = self.shape.bounds(self.style).expand(slack);
+        if shadow::casts(self.shape) {
+            reach.union(&shadow::reach(self.shape, self.style))
+        } else {
+            reach
+        }
     }
 }
 
@@ -195,7 +205,7 @@ pub(crate) fn obscured(
     let target = clip(base, region.pixels()?)?;
     let window = window(base, below, target);
     let pixels = chartreuse_imaging::crop(base, window).ok()?;
-    let mut flattener = Flattener::new(pixels, window.origin).ok()?;
+    let mut flattener = Flattener::new(pixels, window.origin, base.size()).ok()?;
     for drawn in below {
         flattener.draw(drawn);
     }
@@ -277,14 +287,18 @@ struct Flattener {
     image: Image,
     /// Where `image`'s top-left pixel is in the document.
     origin: PhysicalPoint,
+    /// The size of the document's whole image, which shadows are clipped to
+    /// (see [`cast_shadow`]).
+    size: PhysicalSize,
     /// Premultiplied, the image's size.
     layer: Pixmap,
     text: text::Rasterizer,
 }
 
 impl Flattener {
-    /// Flattens onto `image`, the document's pixels from `origin` on.
-    fn new(image: Image, origin: PhysicalPoint) -> Result<Self> {
+    /// Flattens onto `image`, the document's pixels from `origin` on, of a
+    /// document whose image is `size`.
+    fn new(image: Image, origin: PhysicalPoint, size: PhysicalSize) -> Result<Self> {
         let layer = Pixmap::new(image.width(), image.height()).ok_or_else(|| {
             Error::InvalidImage(format!(
                 "{}×{} is too large to flatten",
@@ -295,6 +309,7 @@ impl Flattener {
         Ok(Self {
             image,
             origin,
+            size,
             layer,
             text: text::Rasterizer::new(),
         })
@@ -305,69 +320,27 @@ impl Flattener {
         Transform::from_translate(-self.origin.x as f32, -self.origin.y as f32)
     }
 
-    /// Draws an annotation above everything drawn so far.
+    /// Draws an annotation above everything drawn so far: its shadow, if it
+    /// casts one, then it.
     fn draw(&mut self, drawn: &Drawn<'_>) {
         let style = drawn.style;
-        let paint = paint(style.color);
-        let width = style.stroke_width.max(0.0);
         let transform = self.transform();
+        if let Some((pixels, shadow)) = cast_shadow(drawn.shape, style, self.size) {
+            self.layer.draw_pixmap(
+                pixels.origin.x - self.origin.x,
+                pixels.origin.y - self.origin.y,
+                shadow.as_ref(),
+                &PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
+        }
+        let paint = paint(style.color);
         let layer = &mut self.layer;
         match drawn.shape {
-            Shape::Line(line) => polyline(layer, &[line.start, line.end], width, &paint, transform),
-            Shape::Arrow(arrow) => match arrow.outline(style.stroke_width) {
-                Some((start, segments)) => {
-                    let mut path = PathBuilder::new();
-                    path.move_to(start.x, start.y);
-                    for segment in segments {
-                        match segment {
-                            PathSegment::Line(to) => path.line_to(to.x, to.y),
-                            PathSegment::Cubic([a, b, to]) => {
-                                path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
-                            }
-                        }
-                    }
-                    path.close();
-                    fill(layer, path.finish(), &paint, transform);
-                }
-                None => dot(layer, arrow.start, width, &paint, transform),
-            },
-            Shape::Rectangle(rectangle) => {
-                let (start, corners) = rectangle.outline(style.corner_radius);
-                if rectangle.rect.width() == 0.0 && rectangle.rect.height() == 0.0 {
-                    dot(layer, start, width, &paint, transform);
-                } else {
-                    let rounded = rectangle.radius(style.corner_radius) > 0.0;
-                    let mut path = PathBuilder::new();
-                    path.move_to(start.x, start.y);
-                    for (edge_end, [a, b, to]) in corners {
-                        path.line_to(edge_end.x, edge_end.y);
-                        if rounded {
-                            path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
-                        }
-                    }
-                    path.close();
-                    stroke(layer, path.finish(), width, &paint, transform);
-                }
-            }
-            Shape::Ellipse(ellipse) => {
-                let (start, curves) = ellipse.curves();
-                if ellipse.rect.width() == 0.0 && ellipse.rect.height() == 0.0 {
-                    dot(layer, start, width, &paint, transform);
-                } else {
-                    let mut path = PathBuilder::new();
-                    path.move_to(start.x, start.y);
-                    for [a, b, to] in curves {
-                        path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
-                    }
-                    path.close();
-                    stroke(layer, path.finish(), width, &paint, transform);
-                }
-            }
-            Shape::Pen(pen) => polyline(layer, &pen.points, width, &paint, transform),
             Shape::Highlighter(stroke) => self.highlighter(stroke, style),
             Shape::Step(step) => {
-                let diameter = 2.0 * StepMarker::radius(style.font_size);
-                dot(layer, step.center, diameter, &paint, transform);
+                geometry(layer, drawn.shape, style, &paint, transform);
                 if let Some(number) = drawn.number {
                     let label = number.to_string();
                     let size = font::measure(&label, style.font_size);
@@ -391,6 +364,7 @@ impl Flattener {
                 }
                 self.text.draw(layer, self.origin, text, style);
             }
+            shape => geometry(layer, shape, style, &paint, transform),
         }
     }
 
@@ -499,6 +473,136 @@ pub(crate) fn highlighter_layer(
         transform,
     );
     Some(layer)
+}
+
+/// The drop shadow `shape` casts in `style` (see [`shadow`]) on a document
+/// whose image is `size`: the pixels of the image it covers, and their
+/// contents, black with the shadow's alpha (so the same bytes premultiplied
+/// or straight). `None` if it casts none, or none on the image. The canvas
+/// shows shadows with this too, so they look the same there.
+///
+/// The silhouette is rasterized and blurred over the shadow's reach within
+/// the image grown by the blur's spread, so that a shape just off the image
+/// still shades its edge, then cut down to the image.
+pub(crate) fn cast_shadow(
+    shape: &Shape,
+    style: &Style,
+    size: PhysicalSize,
+) -> Option<(PhysicalRect, Pixmap)> {
+    if !shadow::casts(shape) {
+        return None;
+    }
+    let image = PhysicalRect::new(0, 0, size.width, size.height);
+    // A few pixels, so the casts and sums are exact.
+    let margin = shadow::SPREAD.ceil() as u32;
+    let grown = PhysicalRect::new(
+        -(margin as i32),
+        -(margin as i32),
+        size.width.saturating_add(2 * margin),
+        size.height.saturating_add(2 * margin),
+    );
+    let area = shadow::reach(shape, style).pixels()?.intersection(&grown)?;
+    let target = area.intersection(&image)?;
+    let mut silhouette = Pixmap::new(area.size.width, area.size.height)?;
+    let transform = Transform::from_translate(
+        shadow::OFFSET.x - area.origin.x as f32,
+        shadow::OFFSET.y - area.origin.y as f32,
+    );
+    let black = paint(Rgba8::new(0, 0, 0, style.color.a));
+    geometry(&mut silhouette, shape, style, &black, transform);
+    // Premultiplied black is straight black: the same bytes.
+    let mut blurred = Image::new(area.size, silhouette.take()).ok()?;
+    let whole = PhysicalRect::new(0, 0, area.size.width, area.size.height);
+    chartreuse_imaging::blur(&mut blurred, whole, shadow::BLUR_RADIUS);
+    let within = PhysicalRect::new(
+        target.origin.x - area.origin.x,
+        target.origin.y - area.origin.y,
+        target.size.width,
+        target.size.height,
+    );
+    let mut pixels = chartreuse_imaging::crop(&blurred, within)
+        .ok()?
+        .into_pixels();
+    for alpha in pixels.iter_mut().skip(3).step_by(4) {
+        *alpha = to_byte(f32::from(*alpha) / 255.0 * shadow::OPACITY);
+    }
+    let pixmap = Pixmap::from_vec(
+        pixels,
+        IntSize::from_wh(target.size.width, target.size.height)?,
+    )?;
+    Some((target, pixmap))
+}
+
+/// Draws `shape` in `style` with `paint` if it is a line, arrow, rectangle,
+/// ellipse, pen stroke, or step marker (only its disc), as the
+/// [module docs](self#drawing) describe; nothing for other kinds. Both the
+/// shape and its shadow's silhouette are drawn with this.
+fn geometry(
+    target: &mut Pixmap,
+    shape: &Shape,
+    style: &Style,
+    paint: &Paint<'_>,
+    transform: Transform,
+) {
+    let width = style.stroke_width.max(0.0);
+    match shape {
+        Shape::Line(line) => polyline(target, &[line.start, line.end], width, paint, transform),
+        Shape::Arrow(arrow) => match arrow.outline(style.stroke_width) {
+            Some((start, segments)) => {
+                let mut path = PathBuilder::new();
+                path.move_to(start.x, start.y);
+                for segment in segments {
+                    match segment {
+                        PathSegment::Line(to) => path.line_to(to.x, to.y),
+                        PathSegment::Cubic([a, b, to]) => {
+                            path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
+                        }
+                    }
+                }
+                path.close();
+                fill(target, path.finish(), paint, transform);
+            }
+            None => dot(target, arrow.start, width, paint, transform),
+        },
+        Shape::Rectangle(rectangle) => {
+            let (start, corners) = rectangle.outline(style.corner_radius);
+            if rectangle.rect.width() == 0.0 && rectangle.rect.height() == 0.0 {
+                dot(target, start, width, paint, transform);
+            } else {
+                let rounded = rectangle.radius(style.corner_radius) > 0.0;
+                let mut path = PathBuilder::new();
+                path.move_to(start.x, start.y);
+                for (edge_end, [a, b, to]) in corners {
+                    path.line_to(edge_end.x, edge_end.y);
+                    if rounded {
+                        path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
+                    }
+                }
+                path.close();
+                stroke(target, path.finish(), width, paint, transform);
+            }
+        }
+        Shape::Ellipse(ellipse) => {
+            let (start, curves) = ellipse.curves();
+            if ellipse.rect.width() == 0.0 && ellipse.rect.height() == 0.0 {
+                dot(target, start, width, paint, transform);
+            } else {
+                let mut path = PathBuilder::new();
+                path.move_to(start.x, start.y);
+                for [a, b, to] in curves {
+                    path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
+                }
+                path.close();
+                stroke(target, path.finish(), width, paint, transform);
+            }
+        }
+        Shape::Pen(pen) => polyline(target, &pen.points, width, paint, transform),
+        Shape::Step(step) => {
+            let diameter = 2.0 * StepMarker::radius(style.font_size);
+            dot(target, step.center, diameter, paint, transform);
+        }
+        Shape::Highlighter(_) | Shape::Blur(_) | Shape::Text(_) => {}
+    }
 }
 
 /// A stroke through `points`, or a disc if they all coincide.

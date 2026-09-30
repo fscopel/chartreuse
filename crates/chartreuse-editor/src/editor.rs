@@ -112,6 +112,8 @@ pub struct Editor {
     scale_factor: f32,
     /// The canvas's blur region pixels.
     rasters: canvas::Rasters,
+    /// The canvas's shadow pixels.
+    shadows: canvas::Shadows,
 }
 
 impl Editor {
@@ -135,6 +137,7 @@ impl Editor {
             pointer: None,
             scale_factor: 1.0,
             rasters: canvas::Rasters::default(),
+            shadows: canvas::Shadows::default(),
         }
     }
 
@@ -293,6 +296,10 @@ impl Editor {
 
     pub(crate) const fn rasters(&self) -> &canvas::Rasters {
         &self.rasters
+    }
+
+    pub(crate) const fn shadows(&self) -> &canvas::Shadows {
+        &self.shadows
     }
 
     /// The mapping for a canvas of `size`.
@@ -516,14 +523,15 @@ impl Editor {
     }
 
     /// Uploads the base image afresh if a resize (or an undo or redo of
-    /// one) replaced it, and forgets the blur region pixels computed from
-    /// the old one.
+    /// one) replaced it, and forgets the blur region and shadow pixels
+    /// computed for the old one.
     fn sync_image(&mut self) {
         let base = self.document.shared_base();
         if !Arc::ptr_eq(base, &self.image_of) {
             self.image_of = Arc::clone(base);
             self.image = handle(&self.image_of);
             self.rasters = canvas::Rasters::default();
+            self.shadows = canvas::Shadows::default();
         }
     }
 

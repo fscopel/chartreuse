@@ -307,6 +307,60 @@ pub mod highlighter {
     }
 }
 
+pub mod shadow {
+    //! The subtle drop shadow cast by lines, arrows, rectangles, ellipses,
+    //! pen strokes, and step markers (their discs, not their numbers); see
+    //! [`casts`].
+    //!
+    //! A shadow is the shape's silhouette (the shape as drawn, in black at
+    //! the color's own alpha) moved by [`OFFSET`], blurred with
+    //! `chartreuse_imaging::blur` at a radius of [`BLUR_RADIUS`], and faded
+    //! to [`OPACITY`]. It is computed in image pixels, beneath its shape and
+    //! above everything below it, so it looks the same at every zoom and in
+    //! the export.
+
+    use super::{Rect, Shape, Style, Vector};
+
+    /// How far the shadow falls from its shape: right and down, as if lit
+    /// from the top left.
+    pub const OFFSET: Vector = Vector::new(1.0, 2.0);
+
+    /// The blur's radius, in image pixels.
+    pub const BLUR_RADIUS: u32 = 2;
+
+    /// How far the blur spreads the silhouette: its three box-blur passes
+    /// each reach [`BLUR_RADIUS`] further.
+    pub const SPREAD: f32 = 3.0 * BLUR_RADIUS as f32;
+
+    /// The shadow's opacity where the silhouette is solid, times the
+    /// color's own alpha.
+    pub const OPACITY: f32 = 0.35;
+
+    /// Whether `shape` casts a shadow: lines, arrows, rectangles, ellipses,
+    /// pen strokes, and step markers do. Highlighters are translucent ink,
+    /// blur regions part of the image, and text sits on its own background.
+    #[must_use]
+    pub const fn casts(shape: &Shape) -> bool {
+        matches!(
+            shape,
+            Shape::Line(_)
+                | Shape::Arrow(_)
+                | Shape::Rectangle(_)
+                | Shape::Ellipse(_)
+                | Shape::Pen(_)
+                | Shape::Step(_)
+        )
+    }
+
+    /// A rectangle outside which the shadow `shape` casts in `style` (if it
+    /// casts one) is transparent: its bounds moved by [`OFFSET`] and grown
+    /// by the [`SPREAD`], plus a pixel for anti-aliasing.
+    #[must_use]
+    pub fn reach(shape: &Shape, style: &Style) -> Rect {
+        shape.bounds(style).translate(OFFSET).expand(SPREAD + 1.0)
+    }
+}
+
 /// A straight line segment, stroked with round caps (see [`Style`]). A
 /// zero-length line draws a dot `stroke_width` across.
 #[derive(Debug, Clone, PartialEq)]

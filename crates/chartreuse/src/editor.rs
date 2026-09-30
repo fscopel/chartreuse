@@ -510,7 +510,7 @@ mod tests {
     use super::*;
 
     /// The image editors open over in these tests.
-    const IMAGE: PhysicalSize = PhysicalSize::new(24, 16);
+    const IMAGE: PhysicalSize = PhysicalSize::new(48, 40);
 
     fn white() -> Image {
         Image::filled(IMAGE, Rgba8::WHITE)
@@ -569,7 +569,7 @@ mod tests {
         Point::new(x + MARGIN, y + MARGIN)
     }
 
-    /// Draws a rectangle from (2, 2) to (21, 13) with the default style, the
+    /// Draws a rectangle from (2, 2) to (45, 37) with the default style, the
     /// way the canvas and toolbar would.
     fn draw_rectangle(app: &mut App, window: window::Id) {
         widget(
@@ -577,7 +577,7 @@ mod tests {
             window,
             chartreuse_editor::Message::Tool(ToolKind::Rectangle),
         );
-        let (from, to) = (at(2.0, 2.0), at(21.0, 13.0));
+        let (from, to) = (at(2.0, 2.0), at(45.0, 37.0));
         canvas(
             app,
             window,
@@ -590,7 +590,7 @@ mod tests {
             app,
             window,
             InputKind::Move {
-                position: at(10.0, 8.0),
+                position: at(20.0, 20.0),
             },
         );
         canvas(app, window, InputKind::Move { position: to });
@@ -626,9 +626,14 @@ mod tests {
     /// [`draw_rectangle`] drawn in.
     fn assert_annotated(image: &Image) {
         assert_eq!(image.size(), IMAGE);
-        assert_eq!(image.pixel(10, 2), Some(Style::DEFAULT_COLOR), "top edge");
-        assert_eq!(image.pixel(21, 8), Some(Style::DEFAULT_COLOR), "right edge");
-        assert_eq!(image.pixel(10, 8), Some(Rgba8::WHITE), "inside");
+        assert_eq!(image.pixel(20, 2), Some(Style::DEFAULT_COLOR), "top edge");
+        assert_eq!(
+            image.pixel(45, 20),
+            Some(Style::DEFAULT_COLOR),
+            "right edge"
+        );
+        // Far enough in that the shadow along the outline doesn't reach.
+        assert_eq!(image.pixel(24, 20), Some(Rgba8::WHITE), "inside");
     }
 
     #[test]

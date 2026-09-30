@@ -14,8 +14,11 @@
 //! 1. the background and the base image;
 //! 2. the annotations, split into runs in z-order such that within a run
 //!    meshes come before images and images before text (see [`runs`]), one
-//!    layer per run, so every annotation is drawn above the ones below it;
-//! 3. the preview: the annotation or text the active tool is making;
+//!    layer per run, so every annotation is drawn above the ones below it.
+//!    An annotation that casts a shadow starts a run, and its shadow is a
+//!    layer of its own just beneath the run's;
+//! 3. the preview: the shadow of the shape the active tool is making, then
+//!    in a layer above it that shape or text;
 //! 4. the overlay: the backdrop around the image (or the crop), covering
 //!    whatever the layers below drew outside it, and then the selection and
 //!    other chrome. This top layer is also the one that handles input.
@@ -34,12 +37,12 @@
 //! the crop can be changed: the part outside the crop being edited is dimmed,
 //! and the crop has an outline and a handle at each corner.
 //!
-//! The base and annotation layers keep their geometry and redraw only when
-//! what they show changes: the image, the view, the canvas size, the theme,
-//! the window's scale factor (for highlighters), a run's annotations, a
-//! preview of one of them, or the pixels of a blur region in the run. A
-//! pointer move in a gesture that changes nothing else redraws only the
-//! overlay.
+//! The base, shadow, and annotation layers keep their geometry and redraw
+//! only when what they show changes: the image, the view, the canvas size,
+//! the theme, the window's scale factor (for highlighters), a run's
+//! annotations, a preview of one of them, the pixels of a blur region in the
+//! run, or a shadow's pixels. A pointer move in a gesture that changes
+//! nothing else redraws only the overlay.
 //!
 //! The zoom and pan are a [`View`], mapped to canvas coordinates by a
 //! [`Viewport`].
@@ -48,7 +51,15 @@
 //!
 //! Everything is drawn in canvas pixels through the [`Viewport`]: document
 //! point `p` is at `origin + p × scale`, and document lengths are multiplied
-//! by `scale`. Per annotation, in the annotation's color:
+//! by `scale`.
+//!
+//! A line, arrow, rectangle, ellipse, pen stroke, or step marker is drawn on
+//! its [`shadow`]: a raster image of the pixels flatten puts beneath it
+//! (`flatten::cast_shadow`), at image resolution over the pixels it covers,
+//! filtered bilinearly. The editor keeps each shadow's image until its shape
+//! or style changes.
+//!
+//! Per annotation, in the annotation's color:
 //!
 //! - Strokes (a line, a rectangle's or ellipse's outline, a pen's path) are
 //!   `stroke_width` wide, centered on the geometry, with round caps and
@@ -117,12 +128,14 @@
 mod captured;
 mod regions;
 mod render;
+mod shadows;
 mod viewport;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 
+use chartreuse_core::geometry::PhysicalRect;
 use iced::advanced::image;
 use iced::advanced::mouse::{self, click, Interaction};
 use iced::widget::canvas::{self as iced_canvas, Action, Event, Frame, Geometry, Program};
@@ -135,12 +148,13 @@ use smol_str::SmolStr;
 
 use crate::editor::Message;
 use crate::flatten::Drawn;
-use crate::model::{Annotation, AnnotationId, BlurRegion, Rect, Shape, Style};
+use crate::model::{shadow, Annotation, AnnotationId, BlurRegion, Rect, Shape, Style};
 use crate::tools::{self, Preview, TextTarget};
 use crate::Editor;
 
 pub(crate) use regions::{Obscured, Rasters};
 pub use render::color;
+pub(crate) use shadows::{Shadow, Shadows};
 pub use viewport::{View, Viewport, Zoom, MARGIN, MAX_SCALE, MIN_SCALE, ZOOM_STEP};
 
 /// Pixels scrolled per line, for mice that scroll by lines.
@@ -188,9 +202,14 @@ pub(crate) fn view(editor: &Editor) -> Element<'_, Message> {
             .width(Length::Fill)
             .height(Length::Fill)
     };
-    let annotations = runs(editor.document().annotations())
-        .into_iter()
-        .map(|run| layer(Layer::Annotations(run)).into());
+    let annotations = editor.document().annotations();
+    let layers = runs(annotations).into_iter().flat_map(|run| {
+        let shadow = shadow::casts(&annotations[run.start].shape)
+            .then(|| layer(Layer::Shadow(Some(run.start))).into());
+        shadow
+            .into_iter()
+            .chain([layer(Layer::Annotations(run)).into()])
+    });
     // A stack draws its first child in the enclosing renderer layer and each
     // later one in a new layer clipped to the stack; the empty first child
     // puts every canvas in its own layer. The runs share one nested stack so
@@ -201,7 +220,8 @@ pub(crate) fn view(editor: &Editor) -> Element<'_, Message> {
         stack![
             space().width(Length::Fill).height(Length::Fill),
             layer(Layer::Base),
-            stack(annotations).width(Length::Fill).height(Length::Fill),
+            stack(layers).width(Length::Fill).height(Length::Fill),
+            layer(Layer::Shadow(None)),
             layer(Layer::Preview),
             layer(Layer::Overlay),
         ]
@@ -215,13 +235,17 @@ pub(crate) fn view(editor: &Editor) -> Element<'_, Message> {
 /// can draw in z-order: iced draws a layer's meshes, then its images, then
 /// its text, so a run never has an annotation drawing an earlier kind of
 /// [`Primitive`] than the one below it last drew (a shape after text, or
-/// after a highlighter or blur region).
+/// after a highlighter or blur region). An annotation that casts a
+/// [shadow](shadow::casts) starts a run, as its shadow, an image, is drawn
+/// in a layer of its own just beneath the run's.
 #[must_use]
 pub fn runs(annotations: &[Annotation]) -> Vec<Range<usize>> {
     let mut runs = Vec::new();
     let mut start = 0;
     for (index, pair) in annotations.windows(2).enumerate() {
-        if Primitive::last(&pair[0].shape) > Primitive::first(&pair[1].shape) {
+        if Primitive::last(&pair[0].shape) > Primitive::first(&pair[1].shape)
+            || shadow::casts(&pair[1].shape)
+        {
             runs.push(start..index + 1);
             start = index + 1;
         }
@@ -271,6 +295,9 @@ impl Primitive {
 #[derive(Debug, Clone)]
 enum Layer {
     Base,
+    /// The shadow of the annotation at this index, the first of its run,
+    /// or (`None`) of the shape being drawn.
+    Shadow(Option<usize>),
     Annotations(Range<usize>),
     Preview,
     Overlay,
@@ -295,7 +322,7 @@ struct Tracking {
 struct LayerState {
     /// The overlay's pointer tracking.
     tracking: Tracking,
-    /// The base or annotation layer's geometry.
+    /// The base, shadow, or annotation layer's geometry.
     drawing: Drawing,
 }
 
@@ -311,6 +338,13 @@ struct Drawing {
 /// (which the cache tracks itself).
 #[derive(Debug, Clone, PartialEq)]
 enum Content<'a> {
+    Shadow {
+        viewport: Viewport,
+        /// The area shown, which clips the shadow.
+        area: Rect,
+        /// Where the shadow's pixels are, and their image.
+        shadow: Option<(PhysicalRect, image::Id)>,
+    },
     Base {
         image: image::Id,
         viewport: Viewport,
@@ -340,6 +374,15 @@ enum Content<'a> {
 impl Content<'_> {
     fn into_owned(self) -> Content<'static> {
         match self {
+            Content::Shadow {
+                viewport,
+                area,
+                shadow,
+            } => Content::Shadow {
+                viewport,
+                area,
+                shadow,
+            },
             Content::Base {
                 image,
                 viewport,
@@ -563,6 +606,26 @@ impl Scene<'_> {
             .get(document, id, region, style.blur, &below)
     }
 
+    /// The shadow of the annotation at `index` as displayed while the active
+    /// tool's gesture is in progress, or (`None`) of the shape the gesture is
+    /// making; `None` if it casts none.
+    fn shadow(&self, index: Option<usize>) -> Option<Shadow> {
+        let document = self.editor.document();
+        let preview = self.editor.active_tool().preview();
+        let shadows = self.editor.shadows();
+        match index {
+            Some(index) => {
+                let annotation = &document.annotations()[index];
+                let shape = displayed(annotation, &preview)?;
+                shadows.get(document, Some(annotation.id()), &shape, &annotation.style)
+            }
+            None => match &preview {
+                Preview::New(shape) => shadows.get(document, None, shape, &self.editor.style()),
+                _ => None,
+            },
+        }
+    }
+
     /// How annotations' raster parts are rendered on a canvas of `size` whose
     /// annotations are clipped to `clip`.
     fn raster(&self, size: Size, clip: Rectangle) -> render::Raster {
@@ -736,6 +799,24 @@ impl Program<Message> for Scene<'_> {
         let size = bounds.size();
         let viewport = self.editor.viewport(size);
         let geometry = match &self.layer {
+            Layer::Shadow(index) => {
+                let shadow = self.shadow(*index);
+                let area = self.editor.area();
+                let content = Content::Shadow {
+                    viewport,
+                    area,
+                    shadow: shadow
+                        .as_ref()
+                        .map(|shadow| (shadow.pixels, shadow.image.id())),
+                };
+                state.drawing.draw(renderer, size, Some(content), |frame| {
+                    if let Some(shadow) = &shadow {
+                        frame.with_clip(viewport.to_canvas_rect(area), |frame| {
+                            render::shadow(frame, &viewport, shadow);
+                        });
+                    }
+                })
+            }
             Layer::Base => {
                 let backdrop = backdrop(theme);
                 let content = Content::Base {
@@ -861,28 +942,25 @@ mod tests {
     }
 
     #[test]
-    fn runs_split_where_an_annotation_draws_an_earlier_primitive() {
-        assert_eq!(runs(document("").annotations()), Vec::<Range<usize>>::new());
-        // Text is a mesh (its background) then text, so shapes and one text
-        // share a run, but text over text starts a new one.
-        assert_eq!(runs(document("sst").annotations()), vec![0..3]);
-        assert_eq!(runs(document("sstt").annotations()), vec![0..3, 3..4]);
-        assert_eq!(runs(document("tsts").annotations()), vec![0..1, 1..3, 3..4]);
-        assert_eq!(
-            runs(document("sttsst").annotations()),
-            vec![0..2, 2..3, 3..6]
-        );
-        // Highlighters are images: after shapes, before text, not below it.
-        assert_eq!(runs(document("shh").annotations()), vec![0..3]);
-        assert_eq!(runs(document("shht").annotations()), vec![0..3, 3..4]);
-        assert_eq!(runs(document("hsth").annotations()), vec![0..1, 1..3, 3..4]);
-        // Step markers are a mesh then text.
-        assert_eq!(runs(document("sn").annotations()), vec![0..2]);
-        assert_eq!(runs(document("snt").annotations()), vec![0..2, 2..3]);
-        assert_eq!(runs(document("nsn").annotations()), vec![0..1, 1..3]);
+    fn runs_split_where_an_annotation_draws_an_earlier_primitive_or_casts_a_shadow() {
+        let runs = |kinds| runs(document(kinds).annotations());
+        assert_eq!(runs(""), Vec::<Range<usize>>::new());
+        // Text is a mesh (its background) then text, so text over text
+        // starts a new run.
+        assert_eq!(runs("tt"), vec![0..1, 1..2]);
+        // Highlighters are images: after text's background, not its glyphs.
+        assert_eq!(runs("thh"), vec![0..1, 1..3]);
+        assert_eq!(runs("hht"), vec![0..2, 2..3]);
         // Blur regions are a mesh (their backdrop) then an image.
-        assert_eq!(runs(document("sbh").annotations()), vec![0..3]);
-        assert_eq!(runs(document("bsb").annotations()), vec![0..1, 1..3]);
+        assert_eq!(runs("bh"), vec![0..2]);
+        assert_eq!(runs("hbb"), vec![0..1, 1..2, 2..3]);
+        // Shapes and step markers cast shadows, drawn in a layer beneath
+        // their run, so each starts one; what can follow it in one layer
+        // does.
+        assert_eq!(runs("sst"), vec![0..1, 1..3]);
+        assert_eq!(runs("shht"), vec![0..3, 3..4]);
+        assert_eq!(runs("tsnh"), vec![0..1, 1..2, 2..3, 3..4]);
+        assert_eq!(runs("sbh"), vec![0..3]);
     }
 
     #[test]
@@ -1026,7 +1104,7 @@ mod tests {
         use testing::{at, click, drag, input, named, press, type_text};
 
         let mut editor = testing::editor();
-        editor.update(Message::Tool(ToolKind::Rectangle));
+        editor.update(Message::Tool(ToolKind::Highlighter));
         drag(&mut editor, at(10.0, 10.0), at(100.0, 100.0));
         editor.update(Message::Tool(ToolKind::Text));
         click(&mut editor, at(200.0, 50.0));
@@ -1044,10 +1122,10 @@ mod tests {
         );
         named(&mut editor, keyboard::key::Named::Backspace);
         named(&mut editor, keyboard::key::Named::Backspace);
-        assert_eq!(runs(editor.document().annotations()).len(), 2);
+        assert_eq!(runs(editor.document().annotations()).len(), 3);
 
-        // Pressing on the arrow commits the edit, which merges the two runs
-        // into one layer, and starts dragging the arrow.
+        // Pressing on the arrow commits the edit, which drops the text's
+        // layer, and starts dragging the arrow.
         let mut ui = Headless::new();
         let (from, to) = (at(50.0, 200.0), at(90.0, 230.0));
         let button = mouse::Button::Left;
@@ -1056,7 +1134,7 @@ mod tests {
             from,
             &[Event::Mouse(mouse::Event::ButtonPressed(button))],
         );
-        assert_eq!(runs(editor.document().annotations()).len(), 1);
+        assert_eq!(runs(editor.document().annotations()).len(), 2);
         ui.events(
             &mut editor,
             to,
@@ -1069,7 +1147,7 @@ mod tests {
         );
 
         let [_, arrow] = editor.document().annotations() else {
-            panic!("expected the rectangle and the arrow");
+            panic!("expected the highlighter and the arrow");
         };
         assert_eq!(
             arrow.shape,

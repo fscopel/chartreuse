@@ -43,7 +43,7 @@ mod history;
 mod style;
 
 pub use annotation::{
-    highlighter, Annotation, AnnotationId, Arrow, ArrowHead, BlurRegion, Ellipse, Line,
+    highlighter, shadow, Annotation, AnnotationId, Arrow, ArrowHead, BlurRegion, Ellipse, Line,
     PathSegment, Polyline, Rectangle, Shape, StepMarker, Text,
 };
 pub use document::Document;
