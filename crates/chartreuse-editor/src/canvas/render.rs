@@ -92,15 +92,21 @@ pub fn shape(
             }
         }
         Shape::Rectangle(rectangle) => {
-            let [a, b, c, d] = rectangle.rect.corners().map(|p| viewport.to_canvas(p));
-            if a == c {
-                dot(frame, a, width, paint);
+            let (start, corners) = rectangle.outline(style.corner_radius);
+            let start = viewport.to_canvas(start);
+            if rectangle.rect.width() == 0.0 && rectangle.rect.height() == 0.0 {
+                dot(frame, start, width, paint);
             } else {
+                let rounded = rectangle.radius(style.corner_radius) > 0.0;
                 let outline = Path::new(|path| {
-                    path.move_to(a);
-                    path.line_to(b);
-                    path.line_to(c);
-                    path.line_to(d);
+                    path.move_to(start);
+                    for (edge_end, curve) in corners {
+                        path.line_to(viewport.to_canvas(edge_end));
+                        if rounded {
+                            let [a, b, to] = curve.map(|p| viewport.to_canvas(p));
+                            path.bezier_curve_to(a, b, to);
+                        }
+                    }
                     path.close();
                 });
                 frame.stroke(&outline, stroke(width, paint));

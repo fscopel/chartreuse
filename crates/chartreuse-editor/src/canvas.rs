@@ -56,7 +56,9 @@
 //!   `stroke_width` across.
 //! - An arrow is its shaft stroked from `start` to [`ArrowHead::base`], then
 //!   the head triangle `[tip, left, right]` filled (never stroked).
-//! - A rectangle is the closed outline through [`Rect::corners`].
+//! - A rectangle is the closed path of [`Rectangle::outline`]: its edges and,
+//!   unless its [radius](crate::model::Rectangle::radius) is zero, the
+//!   Béziers rounding its corners.
 //! - An ellipse is the closed path of the Béziers of [`Ellipse::curves`];
 //!   one of zero size is a dot.
 //! - A pen stroke is the open path through its points; one whose points all
@@ -100,7 +102,7 @@
 //!
 //! [`Text::background`]: crate::model::Text::background
 //! [`ArrowHead::base`]: crate::model::ArrowHead::base
-//! [`Rect::corners`]: crate::model::Rect::corners
+//! [`Rectangle::outline`]: crate::model::Rectangle::outline
 //! [`Ellipse::curves`]: crate::model::Ellipse::curves
 //! [`highlighter::alpha`]: crate::model::highlighter::alpha
 //! [`font::FONT`]: crate::font::FONT

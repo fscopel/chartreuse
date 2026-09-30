@@ -158,12 +158,10 @@ impl ToolKind {
         match self {
             Self::Select => StyleFields::ALL,
             Self::Crop | Self::Resize => StyleFields::NONE,
-            Self::Line
-            | Self::Arrow
-            | Self::Rectangle
-            | Self::Ellipse
-            | Self::Pen
-            | Self::Highlighter => StyleFields::STROKE,
+            Self::Line | Self::Arrow | Self::Ellipse | Self::Pen | Self::Highlighter => {
+                StyleFields::STROKE
+            }
+            Self::Rectangle => StyleFields::RECTANGLE,
             Self::Text => StyleFields::TEXT_BOX,
             Self::Step => StyleFields::TEXT,
             Self::Blur => StyleFields::BLUR,

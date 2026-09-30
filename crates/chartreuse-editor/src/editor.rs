@@ -31,6 +31,8 @@ pub enum Message {
     Color(Rgba8),
     /// Sets the stroke width, like [`Message::Color`].
     StrokeWidth(f32),
+    /// Sets rectangles' corner radius, like [`Message::Color`].
+    CornerRadius(f32),
     /// Sets the font size, like [`Message::Color`].
     FontSize(f32),
     /// Sets how blur regions obscure what is beneath them, like
@@ -178,6 +180,13 @@ impl Editor {
             Message::StrokeWidth(width) => {
                 self.restyle(StylePatch {
                     stroke_width: Some(width),
+                    ..StylePatch::default()
+                });
+                None
+            }
+            Message::CornerRadius(radius) => {
+                self.restyle(StylePatch {
+                    corner_radius: Some(radius),
                     ..StylePatch::default()
                 });
                 None

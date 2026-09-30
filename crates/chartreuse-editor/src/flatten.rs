@@ -28,7 +28,9 @@
 //!   `stroke_width` across; a stroke width of zero (or less) draws nothing.
 //! - An arrow is its shaft stroked from `start` to [`ArrowHead::base`], then
 //!   the head triangle `[tip, left, right]` filled, never stroked.
-//! - A rectangle is the closed outline through [`Rect::corners`].
+//! - A rectangle is the closed path of [`Rectangle::outline`]: its edges and,
+//!   unless its [radius](crate::model::Rectangle::radius) is zero, the
+//!   Béziers rounding its corners.
 //! - An ellipse is the closed path of the Béziers of [`Ellipse::curves`];
 //!   one of zero size is a dot.
 //! - A pen stroke is the open path through its points; one whose points all
@@ -80,7 +82,7 @@
 //! [`SwashCache`]: iced::advanced::graphics::text::cosmic_text::SwashCache
 //! [`LayoutGlyph::physical`]: iced::advanced::graphics::text::cosmic_text::LayoutGlyph::physical
 //! [`ArrowHead::base`]: crate::model::ArrowHead::base
-//! [`Rect::corners`]: crate::model::Rect::corners
+//! [`Rectangle::outline`]: crate::model::Rectangle::outline
 //! [`Ellipse::curves`]: crate::model::Ellipse::curves
 //! [`font::layout`]: crate::font::layout
 //! [`font::measure`]: crate::font::measure
@@ -326,14 +328,18 @@ impl Flattener {
                 None => dot(layer, arrow.start, width, &paint, transform),
             },
             Shape::Rectangle(rectangle) => {
-                let [a, b, c, d] = rectangle.rect.corners();
-                if a == c {
-                    dot(layer, a, width, &paint, transform);
+                let (start, corners) = rectangle.outline(style.corner_radius);
+                if rectangle.rect.width() == 0.0 && rectangle.rect.height() == 0.0 {
+                    dot(layer, start, width, &paint, transform);
                 } else {
+                    let rounded = rectangle.radius(style.corner_radius) > 0.0;
                     let mut path = PathBuilder::new();
-                    path.move_to(a.x, a.y);
-                    for corner in [b, c, d] {
-                        path.line_to(corner.x, corner.y);
+                    path.move_to(start.x, start.y);
+                    for (edge_end, [a, b, to]) in corners {
+                        path.line_to(edge_end.x, edge_end.y);
+                        if rounded {
+                            path.cubic_to(a.x, a.y, b.x, b.y, to.x, to.y);
+                        }
                     }
                     path.close();
                     stroke(layer, path.finish(), width, &paint, transform);

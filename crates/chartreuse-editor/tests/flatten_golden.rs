@@ -204,9 +204,17 @@ fn rectangles() {
     let image = flattened(
         base(96, 72),
         [
-            // Dragged bottom-right to top-left.
+            // Dragged bottom-right to top-left, with the default, tight
+            // corner radius.
             (rectangle(80.0, 60.0, 10.0, 8.0), style(RED, 8.0)),
-            (rectangle(30.5, 28.5, 60.5, 44.5), style(YELLOW, 1.0)),
+            // Rounder.
+            (
+                rectangle(30.5, 28.5, 60.5, 44.5),
+                Style {
+                    corner_radius: 6.0,
+                    ..style(YELLOW, 1.0)
+                },
+            ),
             // A zero-width rectangle is a line with round ends.
             (rectangle(88.0, 10.0, 88.0, 40.0), style(BLUE, 4.0)),
         ],

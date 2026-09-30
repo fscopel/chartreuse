@@ -106,10 +106,11 @@ impl Shape {
     ///   area has round caps, like the stroke; see [`Style`]).
     /// - Arrow: as a line along the shaft (`start` to [`ArrowHead::base`]), or
     ///   within `tolerance` of the filled [`ArrowHead`] triangle.
-    /// - Rectangle: within `stroke_width / 2 + tolerance` of the outline (so
-    ///   the outer corners are rounded, like the stroke's round joins). The
-    ///   interior does not hit, so annotations and image content inside an
-    ///   outline stay clickable. (A future filled rectangle would also hit
+    /// - Rectangle: within `stroke_width / 2 + tolerance` of the outline, its
+    ///   corners rounded to [`Rectangle::radius`] (so the outer corners are
+    ///   rounded, like the stroke's round joins, even at a radius of zero).
+    ///   The interior does not hit, so annotations and image content inside
+    ///   an outline stay clickable. (A future filled rectangle would also hit
     ///   inside.)
     /// - Ellipse: within `stroke_width / 2 + tolerance` of the outline
     ///   ([`distance_to_ellipse`]); like a rectangle, not inside.
@@ -134,7 +135,10 @@ impl Shape {
                 }
                 None => distance_to_segment(point, arrow.start, arrow.end) <= reach,
             },
-            Self::Rectangle(rectangle) => rectangle.rect.distance_to_outline(point) <= reach,
+            Self::Rectangle(rectangle) => {
+                let radius = rectangle.radius(style.corner_radius);
+                rectangle.rect.distance_to_outline(point, radius) <= reach
+            }
             Self::Ellipse(ellipse) => distance_to_ellipse(point, ellipse.rect) <= reach,
             Self::Pen(pen) => distance_to_polyline(point, &pen.points) <= reach,
             Self::Highlighter(stroke) => {
@@ -183,18 +187,19 @@ impl Shape {
 
     /// The style fields the shape draws with, the only ones restyling
     /// changes ([`Command::Restyle`](super::Command::Restyle)): color and
-    /// stroke width for strokes (a line, arrow, rectangle, ellipse, pen, or
-    /// highlighter), color and font size for step markers, those and the
-    /// background for text, and only the blur mode for a blur region.
+    /// stroke width for strokes (a line, arrow, ellipse, pen, or
+    /// highlighter), those and the corner radius for rectangles, color and
+    /// font size for step markers, those and the background for text, and
+    /// only the blur mode for a blur region.
     #[must_use]
     pub const fn style_fields(&self) -> StyleFields {
         match self {
             Self::Line(_)
             | Self::Arrow(_)
-            | Self::Rectangle(_)
             | Self::Ellipse(_)
             | Self::Pen(_)
             | Self::Highlighter(_) => StyleFields::STROKE,
+            Self::Rectangle(_) => StyleFields::RECTANGLE,
             Self::Step(_) => StyleFields::TEXT,
             Self::Text(_) => StyleFields::TEXT_BOX,
             Self::Blur(_) => StyleFields::BLUR,
@@ -374,12 +379,77 @@ impl ArrowHead {
     }
 }
 
-/// An unfilled rectangle outline, stroke centered on `rect`'s edges with round
-/// joins, so its outer corners are rounded and its inner ones sharp (see
-/// [`Style`]).
+/// An unfilled rectangle outline, stroke centered on `rect`'s edges with its
+/// corners rounded to [`Rectangle::radius`] (see [`Rectangle::outline`]), and
+/// round joins, so even at a radius of zero its outer corners are rounded
+/// (see [`Style`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rectangle {
     pub rect: Rect,
+}
+
+impl Rectangle {
+    /// The radius its corners are rounded to for a style's `corner_radius`:
+    /// that, but no more than half the shorter side (so a square can round
+    /// into a circle) and no less than zero.
+    #[must_use]
+    pub fn radius(&self, corner_radius: f32) -> f32 {
+        let shorter = self.rect.width().min(self.rect.height());
+        corner_radius.min(shorter / 2.0).max(0.0)
+    }
+
+    /// The outline for a style's `corner_radius`, as a closed path: a start
+    /// point on the top edge, then, clockwise on screen from the top-right
+    /// corner, for each corner the end of the edge before it and the
+    /// quarter-circle cubic Bézier `[control, control, end]` around it.
+    ///
+    /// Renderers draw a line to each edge end, then the corner's curve,
+    /// except at a [radius](Self::radius) of zero: then each edge ends at its
+    /// corner, and the curves, which would be empty, are left out.
+    #[must_use]
+    pub fn outline(&self, corner_radius: f32) -> (Point, [(Point, [Point; 3]); 4]) {
+        let r = self.radius(corner_radius);
+        let k = r * (1.0 - Ellipse::KAPPA);
+        let (min, max) = (self.rect.min(), self.rect.max());
+        let p = Point::new;
+        (
+            p(min.x + r, min.y),
+            [
+                (
+                    p(max.x - r, min.y),
+                    [
+                        p(max.x - k, min.y),
+                        p(max.x, min.y + k),
+                        p(max.x, min.y + r),
+                    ],
+                ),
+                (
+                    p(max.x, max.y - r),
+                    [
+                        p(max.x, max.y - k),
+                        p(max.x - k, max.y),
+                        p(max.x - r, max.y),
+                    ],
+                ),
+                (
+                    p(min.x + r, max.y),
+                    [
+                        p(min.x + k, max.y),
+                        p(min.x, max.y - k),
+                        p(min.x, max.y - r),
+                    ],
+                ),
+                (
+                    p(min.x, min.y + r),
+                    [
+                        p(min.x, min.y + k),
+                        p(min.x + k, min.y),
+                        p(min.x + r, min.y),
+                    ],
+                ),
+            ],
+        )
+    }
 }
 
 /// An unfilled ellipse outline: the ellipse inscribed in `rect` (axis-aligned,
@@ -748,7 +818,10 @@ mod tests {
         let shape = Shape::Rectangle(Rectangle {
             rect: Rect::from_corners(Point::new(10.0, 10.0), Point::new(110.0, 60.0)),
         });
-        let style = style(4.0);
+        let style = Style {
+            corner_radius: 0.0,
+            ..style(4.0)
+        };
         // On each edge.
         for p in [(60.0, 10.0), (110.0, 35.0), (60.0, 60.0), (10.0, 35.0)] {
             assert!(shape.hit(&style, Point::new(p.0, p.1), 0.0), "{p:?}");
@@ -762,6 +835,19 @@ mod tests {
         assert!(!shape.hit(&style, Point::new(60.0, 6.9), 1.0));
         assert!(shape.hit(&style, Point::new(112.0, 62.0), 1.0));
         assert!(!shape.hit(&style, Point::new(113.0, 63.0), 1.0));
+
+        // Rounded corners: the reach follows the arc, centered at (100, 50).
+        let rounded = Style {
+            corner_radius: 10.0,
+            ..style
+        };
+        assert!(shape.hit(&rounded, Point::new(109.1, 59.1), 1.0));
+        assert!(!shape.hit(&rounded, Point::new(109.4, 59.4), 1.0));
+        assert!(!shape.hit(&rounded, Point::new(112.0, 62.0), 1.0));
+        assert!(
+            shape.hit(&rounded, Point::new(60.0, 7.0), 1.0),
+            "edges unchanged"
+        );
     }
 
     #[test]

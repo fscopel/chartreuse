@@ -91,14 +91,23 @@ fn a_stroke_covers_exactly_the_points_within_half_its_width() {
 }
 
 #[test]
-fn a_rectangle_is_its_outline_with_round_outer_corners() {
+fn a_rectangle_is_its_outline_with_its_corners_rounded() {
     let image = base(60, 50);
     let rect = Rect::from_corners(Point::new(10.0, 8.0), Point::new(50.0, 40.0));
-    let result = flattened(
-        image.clone(),
-        [(Shape::Rectangle(Rectangle { rect }), style(BLUE, 6.0))],
-    );
-    assert_covers(&image, &result, BLUE, |p| rect.distance_to_outline(p) - 3.0);
+    // Sharp path corners still have round outer corners, from the joins.
+    for radius in [0.0, 10.0] {
+        let style = Style {
+            corner_radius: radius,
+            ..style(BLUE, 6.0)
+        };
+        let result = flattened(
+            image.clone(),
+            [(Shape::Rectangle(Rectangle { rect }), style)],
+        );
+        assert_covers(&image, &result, BLUE, |p| {
+            rect.distance_to_outline(p, radius) - 3.0
+        });
+    }
 }
 
 #[test]

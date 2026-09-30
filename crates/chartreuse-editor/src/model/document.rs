@@ -146,10 +146,10 @@ impl Document {
     /// Everything scales by the export's factor on each axis: the base image
     /// is resampled ([`chartreuse_imaging::resize`], from the image the
     /// document was opened with), the annotations' geometry scales
-    /// ([`Shape::scale`]), stroke widths and font sizes scale by the mean of
-    /// the two factors (so a disproportionate resize moves and stretches
-    /// shapes but keeps their strokes and text even), and the crop scales
-    /// too, staying on whole pixels, exactly `size`. The selection is
+    /// ([`Shape::scale`]), stroke widths, corner radii, and font sizes scale
+    /// by the mean of the two factors (so a disproportionate resize moves and
+    /// stretches shapes but keeps their strokes and text even), and the crop
+    /// scales too, staying on whole pixels, exactly `size`. The selection is
     /// unchanged.
     pub fn resize(&mut self, size: PhysicalSize) -> bool {
         let current = self.export_size();
@@ -189,6 +189,7 @@ impl Document {
         for annotation in &mut after.annotations {
             annotation.shape.scale(x, y);
             annotation.style.stroke_width *= length;
+            annotation.style.corner_radius *= length;
             annotation.style.font_size *= length;
         }
         self.commit(Edit::Replace {

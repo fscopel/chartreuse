@@ -16,10 +16,10 @@
 //! none). It shows the value the selected annotations it applies to share
 //! (nothing, if they differ), or else the style for new annotations.
 //!
-//! The stroke width and font size each offer a list of common sizes and a
-//! spinner, whose arrows step the size by one pixel within
-//! [`STROKE_RANGE`] or [`FONT_RANGE`]. The arrows are disabled while the
-//! selected annotations' sizes differ.
+//! The stroke width, corner radius, and font size each offer a list of
+//! common sizes and a spinner, whose arrows step the size by one pixel
+//! within [`STROKE_RANGE`], [`RADIUS_RANGE`], or [`FONT_RANGE`]. The arrows
+//! are disabled while the selected annotations' sizes differ.
 //!
 //! Text's background has its own swatches, for its color, and a list of
 //! [`OPACITIES`]; each changes only its part of the background.
@@ -59,11 +59,17 @@ pub const COLORS: [Rgba8; 8] = [
 /// The stroke widths on offer, in image pixels.
 pub const STROKE_WIDTHS: [f32; 9] = [1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0];
 
+/// The rectangle corner radii on offer, in image pixels.
+pub const CORNER_RADII: [f32; 9] = [0.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0];
+
 /// The font sizes on offer, in image pixels.
 pub const FONT_SIZES: [f32; 9] = [12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 96.0];
 
 /// The stroke widths the spinner steps through, in image pixels.
 pub const STROKE_RANGE: RangeInclusive<f32> = 1.0..=100.0;
+
+/// The corner radii the spinner steps through, in image pixels.
+pub const RADIUS_RANGE: RangeInclusive<f32> = 0.0..=100.0;
 
 /// The font sizes the spinner steps through, in image pixels.
 pub const FONT_RANGE: RangeInclusive<f32> = 1.0..=400.0;
@@ -108,6 +114,7 @@ const fn pixels<const N: usize>(values: [f32; N]) -> [Pixels; N] {
 }
 
 const STROKE_OPTIONS: [Pixels; STROKE_WIDTHS.len()] = pixels(STROKE_WIDTHS);
+const RADIUS_OPTIONS: [Pixels; CORNER_RADII.len()] = pixels(CORNER_RADII);
 const FONT_OPTIONS: [Pixels; FONT_SIZES.len()] = pixels(FONT_SIZES);
 
 /// The text background opacities on offer, in percent.
@@ -154,6 +161,7 @@ enum Control<T> {
 struct Panel {
     color: Control<Rgba8>,
     stroke_width: Control<f32>,
+    corner_radius: Control<f32>,
     font_size: Control<f32>,
     blur: Control<BlurMode>,
     /// The text background's color, opaque.
@@ -184,6 +192,13 @@ impl Panel {
                 |f| f.stroke_width,
                 &style,
                 |s| s.stroke_width,
+            ),
+            corner_radius: control(
+                &selected,
+                made,
+                |f| f.corner_radius,
+                &style,
+                |s| s.corner_radius,
             ),
             font_size: control(&selected, made, |f| f.font_size, &style, |s| s.font_size),
             blur: control(&selected, made, |f| f.blur, &style, |s| s.blur),
@@ -293,6 +308,17 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
             .into(),
         );
         sizes.push(spinner(width, STROKE_RANGE, Message::StrokeWidth));
+    }
+    if let Some(radius) = shown(panel.corner_radius) {
+        sizes.push(text("Radius").into());
+        sizes.push(
+            pick_list(&RADIUS_OPTIONS[..], radius.map(Pixels), |Pixels(radius)| {
+                Message::CornerRadius(radius)
+            })
+            .placeholder("Mixed")
+            .into(),
+        );
+        sizes.push(spinner(radius, RADIUS_RANGE, Message::CornerRadius));
     }
     if let Some(size) = shown(panel.font_size) {
         sizes.push(text("Font").into());
@@ -567,6 +593,7 @@ mod tests {
             Panel {
                 color: Control::Shown(Some(BLUE)),
                 stroke_width: Control::Shown(Some(style.stroke_width)),
+                corner_radius: Control::Shown(Some(Style::DEFAULT_CORNER_RADIUS)),
                 font_size: Control::Shown(Some(40.0)),
                 blur: Control::Shown(Some(BlurMode::Pixelate)),
                 text_background: Control::Shown(Some(WHITE)),
@@ -584,6 +611,7 @@ mod tests {
         let stroke = Style::default().stroke_width;
         assert_eq!(line.stroke_width, Control::Shown(Some(stroke)));
         assert_eq!(line.font_size, Control::Hidden, "not for a line");
+        assert_eq!(line.corner_radius, Control::Hidden, "not for a line");
         assert_eq!(line.blur, Control::Hidden);
         assert_eq!(line.text_background, Control::Hidden);
 
@@ -597,6 +625,7 @@ mod tests {
             Panel {
                 color: Control::Shown(None),
                 stroke_width: Control::Shown(Some(stroke)),
+                corner_radius: Control::Hidden,
                 font_size: Control::Shown(Some(40.0)),
                 blur: Control::Hidden,
                 text_background: Control::Shown(Some(WHITE)),
@@ -644,6 +673,33 @@ mod tests {
     }
 
     #[test]
+    fn new_rectangles_keep_the_last_corner_radius_chosen() {
+        let mut editor = line_and_text();
+        editor.update(Message::Tool(ToolKind::Rectangle));
+        assert_eq!(
+            Panel::of(&editor).corner_radius,
+            Control::Shown(Some(Style::DEFAULT_CORNER_RADIUS))
+        );
+        // Rounding the rectangle just drawn (and selected) rounds the next.
+        drag(&mut editor, at(50.0, 150.0), at(150.0, 250.0));
+        editor.update(Message::CornerRadius(12.0));
+        drag(&mut editor, at(200.0, 150.0), at(300.0, 250.0));
+        let radii: Vec<_> = editor
+            .document()
+            .annotations()
+            .iter()
+            .map(|annotation| annotation.style.corner_radius)
+            .collect();
+        let unchanged = Style::DEFAULT_CORNER_RADIUS;
+        assert_eq!(
+            radii,
+            [unchanged, unchanged, 12.0, 12.0],
+            "line, text, rectangles"
+        );
+        assert_eq!(Panel::of(&editor).corner_radius, Control::Shown(Some(12.0)));
+    }
+
+    #[test]
     fn the_crop_tool_shows_no_style_controls() {
         let mut editor = line_and_text();
         click(&mut editor, at(100.0, 10.0));
@@ -654,6 +710,7 @@ mod tests {
             Panel {
                 color: Control::Hidden,
                 stroke_width: Control::Hidden,
+                corner_radius: Control::Hidden,
                 font_size: Control::Hidden,
                 blur: Control::Hidden,
                 text_background: Control::Hidden,

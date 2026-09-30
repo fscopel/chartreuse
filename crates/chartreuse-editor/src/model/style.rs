@@ -28,6 +28,10 @@ pub struct Style {
     pub color: Rgba8,
     /// Stroke width; see *Strokes* above.
     pub stroke_width: f32,
+    /// How rounded a rectangle's corners are: the radius of each corner of
+    /// the path its stroke is centered on. See
+    /// [`Rectangle::radius`](super::Rectangle::radius).
+    pub corner_radius: f32,
     /// Text size: the em size of the font (cosmic-text `Metrics::font_size`).
     pub font_size: f32,
     /// How a blur region obscures what is beneath it.
@@ -73,12 +77,16 @@ impl Style {
     /// screenshot.
     pub const DEFAULT_TEXT_BACKGROUND: Rgba8 = Rgba8::new(0xff, 0xff, 0xff, 179);
 
+    /// The default corner radius: barely rounded.
+    pub const DEFAULT_CORNER_RADIUS: f32 = 3.0;
+
     /// A copy with every field that `patch` sets replaced.
     #[must_use]
     pub fn patched(self, patch: &StylePatch) -> Self {
         Self {
             color: patch.color.unwrap_or(self.color),
             stroke_width: patch.stroke_width.unwrap_or(self.stroke_width),
+            corner_radius: patch.corner_radius.unwrap_or(self.corner_radius),
             font_size: patch.font_size.unwrap_or(self.font_size),
             blur: patch.blur.unwrap_or(self.blur),
             text_background: Rgba8 {
@@ -96,6 +104,7 @@ impl Default for Style {
         Self {
             color: Self::DEFAULT_COLOR,
             stroke_width: 8.0,
+            corner_radius: Self::DEFAULT_CORNER_RADIUS,
             font_size: 24.0,
             blur: BlurMode::default(),
             text_background: Self::DEFAULT_TEXT_BACKGROUND,
@@ -109,6 +118,7 @@ impl Default for Style {
 pub struct StylePatch {
     pub color: Option<Rgba8>,
     pub stroke_width: Option<f32>,
+    pub corner_radius: Option<f32>,
     pub font_size: Option<f32>,
     pub blur: Option<BlurMode>,
     /// The text background's color; its alpha is ignored (the opacity is
@@ -125,6 +135,7 @@ impl StylePatch {
         Self {
             color: self.color.filter(|_| fields.color),
             stroke_width: self.stroke_width.filter(|_| fields.stroke_width),
+            corner_radius: self.corner_radius.filter(|_| fields.corner_radius),
             font_size: self.font_size.filter(|_| fields.font_size),
             blur: self.blur.filter(|_| fields.blur),
             text_background_color: self
@@ -143,6 +154,7 @@ impl StylePatch {
 pub struct StyleFields {
     pub color: bool,
     pub stroke_width: bool,
+    pub corner_radius: bool,
     pub font_size: bool,
     pub blur: bool,
     /// Both the text background's color and its opacity.
@@ -154,6 +166,7 @@ impl StyleFields {
     pub const NONE: Self = Self {
         color: false,
         stroke_width: false,
+        corner_radius: false,
         font_size: false,
         blur: false,
         text_background: false,
@@ -163,6 +176,7 @@ impl StyleFields {
     pub const ALL: Self = Self {
         color: true,
         stroke_width: true,
+        corner_radius: true,
         font_size: true,
         blur: true,
         text_background: true,
@@ -173,6 +187,12 @@ impl StyleFields {
         color: true,
         stroke_width: true,
         ..Self::NONE
+    };
+
+    /// What rectangles draw with: those and the corner radius.
+    pub const RECTANGLE: Self = Self {
+        corner_radius: true,
+        ..Self::STROKE
     };
 
     /// What step markers draw with: color and font size.
@@ -237,6 +257,7 @@ mod tests {
         let patch = StylePatch {
             color: Some(Rgba8::rgb(1, 2, 3)),
             stroke_width: Some(9.0),
+            corner_radius: Some(5.0),
             font_size: Some(30.0),
             blur: Some(BlurMode::Gaussian),
             text_background_color: Some(Rgba8::rgb(4, 5, 6)),

@@ -302,15 +302,23 @@ impl Rect {
         )
     }
 
-    /// The distance from `point` to the nearest point on the rectangle's outline,
-    /// whether `point` is inside or outside.
+    /// The distance from `point` to the nearest point on the rectangle's outline
+    /// with its corners rounded to `radius` (clamped to between zero and half
+    /// the shorter side), whether `point` is inside or outside.
     #[must_use]
-    pub fn distance_to_outline(&self, point: Point) -> f32 {
-        let [a, b, c, d] = self.corners();
-        [(a, b), (b, c), (c, d), (d, a)]
-            .into_iter()
-            .map(|(start, end)| distance_to_segment(point, start, end))
-            .fold(f32::INFINITY, f32::min)
+    pub fn distance_to_outline(&self, point: Point, radius: f32) -> f32 {
+        let half = Vector::new(self.width() / 2.0, self.height() / 2.0);
+        let radius = radius.clamp(0.0, half.x.min(half.y));
+        let center = self.center();
+        // From the nearest corner's arc center, or the nearest edge if the
+        // point is between them.
+        let q = Vector::new(
+            (point.x - center.x).abs() - (half.x - radius),
+            (point.y - center.y).abs() - (half.y - radius),
+        );
+        let outside = Vector::new(q.x.max(0.0), q.y.max(0.0)).length();
+        let inside = q.x.max(q.y).min(0.0);
+        (outside + inside - radius).abs()
     }
 
     /// Scaled about the origin by `x` horizontally and `y` vertically (both
@@ -504,13 +512,56 @@ mod tests {
     fn rect_outline_distance_inside_and_outside() {
         let r = Rect::new(Point::ORIGIN, Size::new(10.0, 6.0));
         // Inside: nearest edge.
-        assert!(close(r.distance_to_outline(Point::new(5.0, 2.0)), 2.0));
-        assert!(close(r.distance_to_outline(Point::new(9.0, 3.0)), 1.0));
+        assert!(close(r.distance_to_outline(Point::new(5.0, 2.0), 0.0), 2.0));
+        assert!(close(r.distance_to_outline(Point::new(9.0, 3.0), 0.0), 1.0));
         // Outside, beside an edge and beyond a corner.
-        assert!(close(r.distance_to_outline(Point::new(5.0, -2.0)), 2.0));
-        assert!(close(r.distance_to_outline(Point::new(13.0, 10.0)), 5.0));
+        assert!(close(
+            r.distance_to_outline(Point::new(5.0, -2.0), 0.0),
+            2.0
+        ));
+        assert!(close(
+            r.distance_to_outline(Point::new(13.0, 10.0), 0.0),
+            5.0
+        ));
         // On the outline.
-        assert!(close(r.distance_to_outline(Point::new(10.0, 4.0)), 0.0));
+        assert!(close(
+            r.distance_to_outline(Point::new(10.0, 4.0), 0.0),
+            0.0
+        ));
+    }
+
+    #[test]
+    fn rounded_rect_outline_distance_follows_the_corner_arcs() {
+        let r = Rect::new(Point::ORIGIN, Size::new(10.0, 6.0));
+        // The corner arcs are centered 2 in from each side.
+        let sqrt_8 = 8.0_f32.sqrt();
+        assert!(close(
+            r.distance_to_outline(Point::new(0.0, 0.0), 2.0),
+            sqrt_8 - 2.0
+        ));
+        assert!(close(
+            r.distance_to_outline(Point::new(-1.0, -1.0), 2.0),
+            18.0_f32.sqrt() - 2.0
+        ));
+        // Inside, near a corner: the arc is closer than it would be to a
+        // sharp corner's edges.
+        assert!(close(r.distance_to_outline(Point::new(2.0, 2.0), 2.0), 2.0));
+        // The edges between the arcs are unchanged.
+        assert!(close(r.distance_to_outline(Point::new(5.0, 2.0), 2.0), 2.0));
+        assert!(close(
+            r.distance_to_outline(Point::new(5.0, -2.0), 2.0),
+            2.0
+        ));
+        // The radius is at most half the shorter side: the ends are
+        // semicircles.
+        assert!(close(
+            r.distance_to_outline(Point::new(3.0, 3.0), 50.0),
+            3.0
+        ));
+        assert!(close(
+            r.distance_to_outline(Point::new(-1.0, 3.0), 50.0),
+            1.0
+        ));
     }
 
     #[test]
