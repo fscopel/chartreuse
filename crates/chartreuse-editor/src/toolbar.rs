@@ -1,8 +1,10 @@
-//! The editor's toolbar: tools, crop and resize controls, the style controls
-//! (color, stroke width, font size, text background, and how blur regions
-//! obscure), and undo and redo. Also the zoom controls, which the editor's
-//! owner places
-//! ([`Editor::zoom_controls`]).
+//! The editor's toolbar, in two lines. The first has only the tools. The
+//! second has the active tool's options: crop and resize controls, and the
+//! style controls (color, stroke width, font size, text background, and how
+//! blur regions obscure). Undo and redo, which act on the document rather
+//! than the tool, sit at the second line's right end, with Clear crop while
+//! the document is cropped. Also the zoom controls, which the editor's owner
+//! places ([`Editor::zoom_controls`]).
 //!
 //! # Style controls
 //!
@@ -34,7 +36,7 @@ use chartreuse_core::color::Rgba8;
 use iced::widget::{
     button, checkbox, column, pick_list, row, space, text, text_input, tooltip, Row,
 };
-use iced::{Alignment, Background, Border, Element, Theme};
+use iced::{Alignment, Background, Border, Element, Length, Theme};
 
 use crate::canvas;
 use crate::editor::{Message, ZoomChange};
@@ -69,6 +71,9 @@ pub const FONT_RANGE: RangeInclusive<f32> = 1.0..=400.0;
 const SWATCH: f32 = 18.0;
 const GROUP_SPACING: f32 = 16.0;
 const ITEM_SPACING: f32 = 4.0;
+/// The space between the toolbar's lines, and between the rows a line
+/// wraps into.
+const LINE_SPACING: f32 = 8.0;
 
 /// The width of the resize tool's fields.
 const RESIZE_FIELD: f32 = 72.0;
@@ -223,7 +228,7 @@ fn control<T: Copy + PartialEq>(
     }
 }
 
-/// The toolbar for `editor`.
+/// The toolbar for `editor` (see the [module docs](self)).
 pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
     let document = editor.document();
     let panel = Panel::of(editor);
@@ -246,29 +251,27 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
     }));
 
     // While cropping: apply (by switching back to the select tool, which
-    // applies the crop being edited) and clear. Otherwise clear, if cropped.
+    // applies the crop being edited) and clear. Otherwise clear, if cropped,
+    // with the document's actions.
     let cropping = editor.tool() == ToolKind::Crop;
     let editing_crop = matches!(editor.active_tool().preview(), Preview::Crop(Some(_)));
-    let mut crop = Vec::new();
-    if cropping {
-        crop.push(
-            button(text("Apply crop"))
-                .on_press(Message::Tool(ToolKind::Select))
-                .style(button::primary)
-                .into(),
-        );
-    }
-    if cropping || document.crop().is_some() {
-        crop.push(
-            button(text("Clear crop"))
-                .on_press_maybe(
-                    (editing_crop || document.crop().is_some()).then_some(Message::ClearCrop),
-                )
-                .style(button::secondary)
-                .into(),
-        );
-    }
-    let crop = (!crop.is_empty()).then(|| group(crop));
+    let clear_crop = (cropping || document.crop().is_some()).then(|| {
+        button(text("Clear crop"))
+            .on_press_maybe(
+                (editing_crop || document.crop().is_some()).then_some(Message::ClearCrop),
+            )
+            .style(button::secondary)
+            .into()
+    });
+    let (crop, clear_crop) = if cropping {
+        let apply = button(text("Apply crop"))
+            .on_press(Message::Tool(ToolKind::Select))
+            .style(button::primary)
+            .into();
+        (Some(group([apply].into_iter().chain(clear_crop))), None)
+    } else {
+        (None, clear_crop)
+    };
     let resize = editor.active_tool().as_resize().map(resize_controls);
 
     let colors = shown(panel.color).map(|chosen| {
@@ -334,31 +337,41 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         }))
     });
 
-    let history = group([
-        button(text("Undo"))
-            .on_press_maybe(document.can_undo().then_some(Message::Undo))
-            .style(button::secondary)
-            .into(),
-        button(text("Redo"))
-            .on_press_maybe(document.can_redo().then_some(Message::Redo))
-            .style(button::secondary)
-            .into(),
-    ]);
+    let actions = group(
+        clear_crop.into_iter().chain([
+            button(text("Undo"))
+                .on_press_maybe(document.can_undo().then_some(Message::Undo))
+                .style(button::secondary)
+                .into(),
+            button(text("Redo"))
+                .on_press_maybe(document.can_redo().then_some(Message::Redo))
+                .style(button::secondary)
+                .into(),
+        ]),
+    );
 
-    row![tools]
+    let options = Row::new()
         .push(crop)
         .push(resize)
         .push(colors)
         .push(sizes)
         .push(background)
         .push(blur)
-        .push(history)
         .spacing(GROUP_SPACING)
-        .padding(8)
         .align_y(Alignment::Center)
+        .width(Length::Fill)
         .wrap()
-        .vertical_spacing(8)
-        .into()
+        .vertical_spacing(LINE_SPACING);
+
+    column![
+        tools.wrap().vertical_spacing(LINE_SPACING),
+        row![options, actions]
+            .spacing(GROUP_SPACING)
+            .align_y(Alignment::Start),
+    ]
+    .spacing(LINE_SPACING)
+    .padding(8)
+    .into()
 }
 
 /// The zoom controls for `editor`: zoom out, the current zoom, zoom in, and
