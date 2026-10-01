@@ -12,10 +12,10 @@
 //! The style controls restyle the selected annotations (each field only where
 //! the kind draws with it; see [`Shape::style_fields`]) and set the style for
 //! new ones. A control shows only if it applies to something in play: the
-//! selected annotations, or the ones the active tool makes (with the select
-//! tool and nothing selected, all of them; with the crop or resize tool,
-//! none). It shows the value the selected annotations it applies to share
-//! (nothing, if they differ), or else the style for new annotations.
+//! selected annotations, or the ones the active tool makes (none, with the
+//! select, crop, or resize tool). It shows the value the selected
+//! annotations it applies to share (nothing, if they differ), or else the
+//! style for new annotations.
 //!
 //! The stroke width, corner radius, and font size each offer a list of
 //! common sizes and a spinner, whose arrows step the size by one pixel
@@ -183,10 +183,7 @@ impl Panel {
             ToolKind::Crop | ToolKind::Resize => Vec::new(),
             _ => editor.document().selected().collect(),
         };
-        let made = match tool {
-            ToolKind::Select if !selected.is_empty() => StyleFields::NONE,
-            tool => tool.style_fields(),
-        };
+        let made = tool.style_fields();
         let style = editor.style();
         Self {
             color: control(&selected, made, |f| f.color, &style, |s| s.color),
@@ -605,22 +602,20 @@ mod tests {
         editor
     }
 
+    /// Every style control hidden.
+    const NO_CONTROLS: Panel = Panel {
+        color: Control::Hidden,
+        stroke_width: Control::Hidden,
+        corner_radius: Control::Hidden,
+        font_size: Control::Hidden,
+        blur: Control::Hidden,
+        text_background: Control::Hidden,
+        text_background_opacity: Control::Hidden,
+    };
+
     #[test]
-    fn with_nothing_selected_the_select_tool_shows_every_control() {
-        let editor = line_and_text();
-        let style = editor.style();
-        assert_eq!(
-            Panel::of(&editor),
-            Panel {
-                color: Control::Shown(Some(BLUE)),
-                stroke_width: Control::Shown(Some(style.stroke_width)),
-                corner_radius: Control::Shown(Some(Style::DEFAULT_CORNER_RADIUS)),
-                font_size: Control::Shown(Some(40.0)),
-                blur: Control::Shown(Some(BlurMode::Pixelate)),
-                text_background: Control::Shown(Some(WHITE)),
-                text_background_opacity: Control::Shown(Some(Style::DEFAULT_TEXT_BACKGROUND.a)),
-            }
-        );
+    fn with_nothing_selected_the_select_tool_shows_no_style_controls() {
+        assert_eq!(Panel::of(&line_and_text()), NO_CONTROLS);
     }
 
     #[test]
@@ -725,19 +720,7 @@ mod tests {
         let mut editor = line_and_text();
         click(&mut editor, at(100.0, 10.0));
         editor.update(Message::Tool(ToolKind::Crop));
-        let hidden = Panel::of(&editor);
-        assert_eq!(
-            hidden,
-            Panel {
-                color: Control::Hidden,
-                stroke_width: Control::Hidden,
-                corner_radius: Control::Hidden,
-                font_size: Control::Hidden,
-                blur: Control::Hidden,
-                text_background: Control::Hidden,
-                text_background_opacity: Control::Hidden,
-            }
-        );
+        assert_eq!(Panel::of(&editor), NO_CONTROLS);
     }
 
     #[test]
