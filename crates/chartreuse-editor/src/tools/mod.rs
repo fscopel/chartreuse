@@ -24,8 +24,9 @@
 //!
 //! # Adding a tool
 //!
-//! Add a module with the tool type, a [`ToolKind`] variant, its toolbar icon
-//! in `assets/icons` (see [`ToolKind::icon`]), and an arm in
+//! Add a module with the tool type, a [`ToolKind`] variant with a place in
+//! [`ToolKind::GROUPS`], its toolbar icon in `assets/icons` (see
+//! [`ToolKind::icon`]), and an arm in
 //! [`ToolKind::create`]. Tools that draw a shape by dragging from one corner
 //! or end to the other only need a [`DragShape`] (see `line.rs`), and tools
 //! that draw along the pointer's path only a [`FreehandShape`] (see
@@ -100,20 +101,20 @@ pub enum ToolKind {
 }
 
 impl ToolKind {
-    /// Every kind, in toolbar order.
-    pub const ALL: [Self; 12] = [
-        Self::Select,
-        Self::Line,
-        Self::Arrow,
-        Self::Rectangle,
-        Self::Ellipse,
-        Self::Pen,
-        Self::Highlighter,
-        Self::Text,
-        Self::Step,
-        Self::Blur,
-        Self::Crop,
-        Self::Resize,
+    /// Every kind, in toolbar order, in the groups the toolbar sets apart:
+    /// selecting; shapes and freehand; marking up and obscuring; and
+    /// changing the canvas.
+    pub const GROUPS: [&'static [Self]; 4] = [
+        &[Self::Select],
+        &[
+            Self::Arrow,
+            Self::Rectangle,
+            Self::Ellipse,
+            Self::Line,
+            Self::Pen,
+        ],
+        &[Self::Text, Self::Highlighter, Self::Blur, Self::Step],
+        &[Self::Crop, Self::Resize],
     ];
 
     /// The name shown in the toolbar's tooltips.
@@ -212,8 +213,10 @@ impl ToolKind {
         let (Some(c), None) = (chars.next(), chars.next()) else {
             return None;
         };
-        Self::ALL
+        Self::GROUPS
             .into_iter()
+            .flatten()
+            .copied()
             .find(|kind| kind.hotkey() == c.to_ascii_lowercase())
     }
 

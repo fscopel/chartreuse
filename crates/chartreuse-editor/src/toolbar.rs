@@ -1,10 +1,11 @@
-//! The editor's toolbar, in two lines. The first has only the tools. The
-//! second has the active tool's options: crop and resize controls, and the
-//! style controls (color, stroke width, font size, text background, and how
-//! blur regions obscure). Undo and redo, which act on the document rather
-//! than the tool, sit at the second line's right end, with Clear crop while
-//! the document is cropped. Also the zoom controls, which the editor's owner
-//! places ([`Editor::zoom_controls`]).
+//! The editor's toolbar, in two lines. The first has only the tools, in
+//! their [groups](ToolKind::GROUPS). The second has the active tool's
+//! options: crop and resize controls, and the style controls (color, stroke
+//! width, font size, text background, and how blur regions obscure). Undo
+//! and redo, which act on the document rather than the tool, sit at the
+//! second line's right end, with Clear crop while the document is cropped.
+//! Also the zoom controls, which the editor's owner places
+//! ([`Editor::zoom_controls`]).
 //!
 //! # Style controls
 //!
@@ -251,28 +252,16 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
     let document = editor.document();
     let panel = Panel::of(editor);
 
-    let tools = group(ToolKind::ALL.into_iter().map(|kind| {
-        let active = kind == editor.tool();
-        let look = if active {
-            button::primary
-        } else {
-            button::secondary
-        };
-        let hint = format!("{} ({})", kind.label(), kind.hotkey().to_ascii_uppercase());
-        // The icon takes the button's text color, as a label would.
-        let icon = svg(svg::Handle::from_memory(kind.icon()))
-            .width(TOOL_ICON_SIZE)
-            .height(TOOL_ICON_SIZE)
-            .style(move |theme: &Theme, _| svg::Style {
-                color: Some(look(theme, button::Status::Active).text_color),
-            });
-        tooltip(
-            button(icon).on_press(Message::Tool(kind)).style(look),
-            text(hint),
-            tooltip::Position::Bottom,
+    let tools = Row::with_children(ToolKind::GROUPS.into_iter().map(|kinds| {
+        group(
+            kinds
+                .iter()
+                .map(|&kind| tool_button(kind, kind == editor.tool())),
         )
         .into()
-    }));
+    }))
+    .spacing(GROUP_SPACING)
+    .align_y(Alignment::Center);
 
     // While cropping: apply (by switching back to the select tool, which
     // applies the crop being edited) and clear. Otherwise clear, if cropped,
@@ -406,6 +395,29 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
     ]
     .spacing(LINE_SPACING)
     .padding(8)
+    .into()
+}
+
+/// The button for the `kind` tool, highlighted if it is `active`.
+fn tool_button(kind: ToolKind, active: bool) -> Element<'static, Message> {
+    let look = if active {
+        button::primary
+    } else {
+        button::secondary
+    };
+    let hint = format!("{} ({})", kind.label(), kind.hotkey().to_ascii_uppercase());
+    // The icon takes the button's text color, as a label would.
+    let icon = svg(svg::Handle::from_memory(kind.icon()))
+        .width(TOOL_ICON_SIZE)
+        .height(TOOL_ICON_SIZE)
+        .style(move |theme: &Theme, _| svg::Style {
+            color: Some(look(theme, button::Status::Active).text_color),
+        });
+    tooltip(
+        button(icon).on_press(Message::Tool(kind)).style(look),
+        text(hint),
+        tooltip::Position::Bottom,
+    )
     .into()
 }
 
