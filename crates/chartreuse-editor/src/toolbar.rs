@@ -1,11 +1,10 @@
-//! The editor's toolbar, in two lines. The first has only the tools, in
-//! their [groups](ToolKind::GROUPS). The second has the active tool's
+//! The editor's toolbar, in two lines. The first has the tools, in their
+//! [groups](ToolKind::GROUPS), and at its right end undo and redo, which act
+//! on the document rather than the tool. The second has the active tool's
 //! options: crop and resize controls, and the style controls (color, stroke
-//! width, font size, text background, and how blur regions obscure). Undo
-//! and redo, which act on the document rather than the tool, sit at the
-//! second line's right end, with Clear crop while the document is cropped.
-//! Also the zoom controls, which the editor's owner places
-//! ([`Editor::zoom_controls`]).
+//! width, font size, text background, and how blur regions obscure), with
+//! Clear crop at its right end while the document is cropped. Also the zoom
+//! controls, which the editor's owner places ([`Editor::zoom_controls`]).
 //!
 //! # Style controls
 //!
@@ -35,9 +34,9 @@ use std::ops::RangeInclusive;
 
 use chartreuse_core::color::Rgba8;
 use iced::widget::{
-    button, checkbox, column, pick_list, row, space, svg, text, text_input, tooltip, Row,
+    button, checkbox, column, container, pick_list, row, space, svg, text, text_input, tooltip, Row,
 };
-use iced::{Alignment, Background, Border, Element, Length, Theme};
+use iced::{Alignment, Background, Border, Element, Length, Padding, Theme};
 
 use crate::canvas;
 use crate::editor::{Message, ZoomChange};
@@ -65,6 +64,10 @@ pub const CORNER_RADII: [f32; 9] = [0.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24
 
 /// The side of the toolbar's icons, in logical pixels.
 const ICON_SIZE: f32 = 18.0;
+
+/// The undo and redo buttons' icons (Lucide's undo-2 and redo-2).
+const UNDO_ICON: &[u8] = include_bytes!("../assets/icons/undo.svg");
+const REDO_ICON: &[u8] = include_bytes!("../assets/icons/redo.svg");
 
 /// The font sizes on offer, in image pixels.
 pub const FONT_SIZES: [f32; 9] = [12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 96.0];
@@ -262,7 +265,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
 
     // While cropping: apply (by switching back to the select tool, which
     // applies the crop being edited) and clear. Otherwise clear, if cropped,
-    // with the document's actions.
+    // at the second line's right end.
     let cropping = editor.tool() == ToolKind::Crop;
     let editing_crop = matches!(editor.active_tool().preview(), Preview::Crop(Some(_)));
     let clear_crop = (cropping || document.crop().is_some()).then(|| {
@@ -358,18 +361,20 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         }))
     });
 
-    let actions = group(
-        clear_crop.into_iter().chain([
-            button(text("Undo"))
-                .on_press_maybe(document.can_undo().then_some(Message::Undo))
-                .style(button::secondary)
-                .into(),
-            button(text("Redo"))
-                .on_press_maybe(document.can_redo().then_some(Message::Redo))
-                .style(button::secondary)
-                .into(),
-        ]),
-    );
+    let history = group([
+        icon_button(
+            UNDO_ICON,
+            button::secondary,
+            document.can_undo().then_some(Message::Undo),
+            "Undo".into(),
+        ),
+        icon_button(
+            REDO_ICON,
+            button::secondary,
+            document.can_redo().then_some(Message::Redo),
+            "Redo".into(),
+        ),
+    ]);
 
     let options = Row::new()
         .push(crop)
@@ -385,10 +390,29 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         .vertical_spacing(LINE_SPACING);
 
     column![
-        tools.wrap().vertical_spacing(LINE_SPACING),
-        row![options, actions]
-            .spacing(GROUP_SPACING)
-            .align_y(Alignment::Start),
+        row![
+            tools
+                .width(Length::Fill)
+                .wrap()
+                .vertical_spacing(LINE_SPACING),
+            history
+        ]
+        .spacing(GROUP_SPACING)
+        .align_y(Alignment::Start),
+        row![
+            // Keeps the line, when it has nothing to show, as tall as a
+            // line of text buttons, so the canvas below stays put.
+            container(text("")).padding(Padding {
+                left: 0.0,
+                right: 0.0,
+                ..button::DEFAULT_PADDING
+            }),
+            Row::new()
+                .push(options)
+                .push(clear_crop)
+                .spacing(GROUP_SPACING)
+                .align_y(Alignment::Start),
+        ],
     ]
     .spacing(LINE_SPACING)
     .padding(8)
