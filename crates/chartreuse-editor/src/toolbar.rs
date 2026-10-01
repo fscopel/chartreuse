@@ -34,7 +34,7 @@ use std::ops::RangeInclusive;
 
 use chartreuse_core::color::Rgba8;
 use iced::widget::{
-    button, checkbox, column, pick_list, row, space, text, text_input, tooltip, Row,
+    button, checkbox, column, pick_list, row, space, svg, text, text_input, tooltip, Row,
 };
 use iced::{Alignment, Background, Border, Element, Length, Theme};
 
@@ -61,6 +61,9 @@ pub const STROKE_WIDTHS: [f32; 9] = [1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 2
 
 /// The rectangle corner radii on offer, in image pixels.
 pub const CORNER_RADII: [f32; 9] = [0.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0];
+
+/// The side of the tool buttons' icons, in logical pixels.
+const TOOL_ICON_SIZE: f32 = 18.0;
 
 /// The font sizes on offer, in image pixels.
 pub const FONT_SIZES: [f32; 9] = [12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 96.0];
@@ -250,15 +253,21 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
 
     let tools = group(ToolKind::ALL.into_iter().map(|kind| {
         let active = kind == editor.tool();
+        let look = if active {
+            button::primary
+        } else {
+            button::secondary
+        };
         let hint = format!("{} ({})", kind.label(), kind.hotkey().to_ascii_uppercase());
+        // The icon takes the button's text color, as a label would.
+        let icon = svg(svg::Handle::from_memory(kind.icon()))
+            .width(TOOL_ICON_SIZE)
+            .height(TOOL_ICON_SIZE)
+            .style(move |theme: &Theme, _| svg::Style {
+                color: Some(look(theme, button::Status::Active).text_color),
+            });
         tooltip(
-            button(text(kind.label()))
-                .on_press(Message::Tool(kind))
-                .style(if active {
-                    button::primary
-                } else {
-                    button::secondary
-                }),
+            button(icon).on_press(Message::Tool(kind)).style(look),
             text(hint),
             tooltip::Position::Bottom,
         )

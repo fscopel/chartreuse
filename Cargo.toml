@@ -27,7 +27,7 @@ chartreuse-overlay = { path = "crates/chartreuse-overlay" }
 chartreuse-platform = { path = "crates/chartreuse-platform" }
 
 # GUI. Pinned: iced's API changes between minor releases.
-iced = { version = "=0.14.0", features = ["canvas", "image", "advanced"] }
+iced = { version = "=0.14.0", features = ["canvas", "image", "svg", "advanced"] }
 
 # Async plumbing shared by the platform traits and the app.
 futures = "0.3.34"

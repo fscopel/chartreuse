@@ -24,7 +24,8 @@
 //!
 //! # Adding a tool
 //!
-//! Add a module with the tool type, a [`ToolKind`] variant, and an arm in
+//! Add a module with the tool type, a [`ToolKind`] variant, its toolbar icon
+//! in `assets/icons` (see [`ToolKind::icon`]), and an arm in
 //! [`ToolKind::create`]. Tools that draw a shape by dragging from one corner
 //! or end to the other only need a [`DragShape`] (see `line.rs`), and tools
 //! that draw along the pointer's path only a [`FreehandShape`] (see
@@ -77,6 +78,10 @@ pub const HIT_TOLERANCE: f32 = 4.0;
 /// nothing.
 pub const DRAG_THRESHOLD: f32 = 3.0;
 
+/// The license of the toolbar icons (ISC, with MIT for those derived from
+/// Feather), which must travel with redistributed copies of them.
+pub const ICON_LICENSE: &str = include_str!("../../assets/icons/LICENSE.txt");
+
 /// The kinds of tool, one per toolbar button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolKind {
@@ -111,7 +116,7 @@ impl ToolKind {
         Self::Resize,
     ];
 
-    /// The name shown in the toolbar.
+    /// The name shown in the toolbar's tooltips.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -127,6 +132,38 @@ impl ToolKind {
             Self::Blur => "Blur",
             Self::Crop => "Crop",
             Self::Resize => "Resize",
+        }
+    }
+
+    /// The toolbar icon: an SVG from Lucide (named after it in the comment),
+    /// drawn in one color so the toolbar can tint it.
+    #[must_use]
+    pub const fn icon(self) -> &'static [u8] {
+        match self {
+            // mouse-pointer-2
+            Self::Select => include_bytes!("../../assets/icons/select.svg"),
+            // slash
+            Self::Line => include_bytes!("../../assets/icons/line.svg"),
+            // move-up-right
+            Self::Arrow => include_bytes!("../../assets/icons/arrow.svg"),
+            // square
+            Self::Rectangle => include_bytes!("../../assets/icons/rectangle.svg"),
+            // circle
+            Self::Ellipse => include_bytes!("../../assets/icons/ellipse.svg"),
+            // pen
+            Self::Pen => include_bytes!("../../assets/icons/pen.svg"),
+            // highlighter
+            Self::Highlighter => include_bytes!("../../assets/icons/highlighter.svg"),
+            // type
+            Self::Text => include_bytes!("../../assets/icons/text.svg"),
+            // list-ordered
+            Self::Step => include_bytes!("../../assets/icons/step.svg"),
+            // eye-off
+            Self::Blur => include_bytes!("../../assets/icons/blur.svg"),
+            // crop
+            Self::Crop => include_bytes!("../../assets/icons/crop.svg"),
+            // scaling
+            Self::Resize => include_bytes!("../../assets/icons/resize.svg"),
         }
     }
 
