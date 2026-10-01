@@ -1,10 +1,11 @@
 //! The editor's toolbar, in two lines. The first has the tools, in their
-//! [groups](ToolKind::GROUPS), and at its right end undo and redo, which act
-//! on the document rather than the tool. The second has the active tool's
-//! options: crop and resize controls, and the style controls (color, stroke
-//! width, font size, text background, and how blur regions obscure), with
-//! Clear crop at its right end while the document is cropped. Also the zoom
-//! controls, which the editor's owner places ([`Editor::zoom_controls`]).
+//! [groups](ToolKind::GROUPS), with undo and redo, which act on the document
+//! rather than the tool, in a group of their own after the select tool. The
+//! second has the active tool's options: crop and resize controls, and the
+//! style controls (color, stroke width, font size, text background, and how
+//! blur regions obscure), with Clear crop at its right end while the
+//! document is cropped. Also the zoom controls, which the editor's owner
+//! places ([`Editor::zoom_controls`]).
 //!
 //! # Style controls
 //!
@@ -252,14 +253,36 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
     let document = editor.document();
     let panel = Panel::of(editor);
 
-    let tools = Row::with_children(ToolKind::GROUPS.into_iter().map(|kinds| {
+    let history = group([
+        icon_button(
+            UNDO_ICON,
+            button::secondary,
+            document.can_undo().then_some(Message::Undo),
+            "Undo".into(),
+        ),
+        icon_button(
+            REDO_ICON,
+            button::secondary,
+            document.can_redo().then_some(Message::Redo),
+            "Redo".into(),
+        ),
+    ]);
+
+    let tool_group = |kinds: &[ToolKind]| -> Element<'_, Message> {
         group(
             kinds
                 .iter()
                 .map(|&kind| tool_button(kind, kind == editor.tool())),
         )
         .into()
-    }))
+    };
+    // Undo and redo sit in their own group after the select tool's.
+    let [select, rest @ ..] = ToolKind::GROUPS;
+    let tools = Row::with_children(
+        [tool_group(select), history.into()]
+            .into_iter()
+            .chain(rest.map(tool_group)),
+    )
     .spacing(GROUP_SPACING)
     .align_y(Alignment::Center);
 
@@ -361,21 +384,6 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         }))
     });
 
-    let history = group([
-        icon_button(
-            UNDO_ICON,
-            button::secondary,
-            document.can_undo().then_some(Message::Undo),
-            "Undo".into(),
-        ),
-        icon_button(
-            REDO_ICON,
-            button::secondary,
-            document.can_redo().then_some(Message::Redo),
-            "Redo".into(),
-        ),
-    ]);
-
     let options = Row::new()
         .push(crop)
         .push(resize)
@@ -390,15 +398,7 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         .vertical_spacing(LINE_SPACING);
 
     column![
-        row![
-            tools
-                .width(Length::Fill)
-                .wrap()
-                .vertical_spacing(LINE_SPACING),
-            history
-        ]
-        .spacing(GROUP_SPACING)
-        .align_y(Alignment::Start),
+        tools.wrap().vertical_spacing(LINE_SPACING),
         row![
             // Keeps the line, when it has nothing to show, as tall as a
             // line of text buttons, so the canvas below stays put.
