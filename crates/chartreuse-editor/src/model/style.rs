@@ -74,9 +74,9 @@ impl Style {
     /// screenshots.
     pub const DEFAULT_COLOR: Rgba8 = Rgba8::from_rgb_hex(0xff_3b_30);
 
-    /// The default text background: white, 70% opaque, so text reads on any
-    /// screenshot.
-    pub const DEFAULT_TEXT_BACKGROUND: Rgba8 = Rgba8::new(0xff, 0xff, 0xff, 179);
+    /// The default text background: white, 90% opaque (the toolbar's 90%),
+    /// so text reads on any screenshot.
+    pub const DEFAULT_TEXT_BACKGROUND: Rgba8 = Rgba8::new(0xff, 0xff, 0xff, 230);
 
     /// The default corner radius: barely rounded.
     pub const DEFAULT_CORNER_RADIUS: f32 = 3.0;

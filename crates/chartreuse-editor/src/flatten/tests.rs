@@ -432,8 +432,8 @@ fn text_is_drawn_on_its_background() {
     let background = Text::background(text.bounds(style.font_size), style.font_size);
     assert_eq!(background.min(), Point::new(6.0, 6.0), "padded by 0.2 em");
     let result = flattened(image, [(Shape::Text(text), style)]);
-    // White at 70% over black, in the padding outside the layout box.
-    assert_eq!(result.pixel(7, 8), Some(Rgba8::rgb(179, 179, 179)));
+    // White at 90% over black, in the padding outside the layout box.
+    assert_eq!(result.pixel(7, 8), Some(Rgba8::rgb(230, 230, 230)));
     assert_eq!(result.pixel(5, 8), Some(Rgba8::BLACK), "outside it");
     assert_eq!(result.pixel(7, 5), Some(Rgba8::BLACK), "above it");
 }
