@@ -63,8 +63,8 @@ pub const STROKE_WIDTHS: [f32; 9] = [1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 2
 /// The rectangle corner radii on offer, in image pixels.
 pub const CORNER_RADII: [f32; 9] = [0.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0];
 
-/// The side of the tool buttons' icons, in logical pixels.
-const TOOL_ICON_SIZE: f32 = 18.0;
+/// The side of the toolbar's icons, in logical pixels.
+const ICON_SIZE: f32 = 18.0;
 
 /// The font sizes on offer, in image pixels.
 pub const FONT_SIZES: [f32; 9] = [12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 96.0];
@@ -403,15 +403,31 @@ fn tool_button(kind: ToolKind, active: bool) -> Element<'static, Message> {
         button::secondary
     };
     let hint = format!("{} ({})", kind.label(), kind.hotkey().to_ascii_uppercase());
+    icon_button(kind.icon(), look, Some(Message::Tool(kind)), hint)
+}
+
+/// A button showing the SVG `icon` in the `look` button style, sending
+/// `on_press` (disabled if `None`), with `hint` as its tooltip.
+fn icon_button(
+    icon: &'static [u8],
+    look: fn(&Theme, button::Status) -> button::Style,
+    on_press: Option<Message>,
+    hint: String,
+) -> Element<'static, Message> {
     // The icon takes the button's text color, as a label would.
-    let icon = svg(svg::Handle::from_memory(kind.icon()))
-        .width(TOOL_ICON_SIZE)
-        .height(TOOL_ICON_SIZE)
+    let status = if on_press.is_some() {
+        button::Status::Active
+    } else {
+        button::Status::Disabled
+    };
+    let icon = svg(svg::Handle::from_memory(icon))
+        .width(ICON_SIZE)
+        .height(ICON_SIZE)
         .style(move |theme: &Theme, _| svg::Style {
-            color: Some(look(theme, button::Status::Active).text_color),
+            color: Some(look(theme, status).text_color),
         });
     tooltip(
-        button(icon).on_press(Message::Tool(kind)).style(look),
+        button(icon).on_press_maybe(on_press).style(look),
         text(hint),
         tooltip::Position::Bottom,
     )
