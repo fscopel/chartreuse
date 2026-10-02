@@ -20,7 +20,8 @@ pub(super) enum Recorded {
     /// combination.
     Modifier,
     /// A key without Ctrl, Alt or Super (Shift alone is not enough), which as
-    /// a global hotkey would stop typing it in every other app.
+    /// a global hotkey would stop typing it in every other app. PrintScreen
+    /// types nothing, so it needs no modifier.
     NeedsModifier,
     /// A key a global hotkey cannot use, such as a keypad or media key.
     Unsupported,
@@ -53,9 +54,10 @@ pub(super) fn recorded(key: Physical, modifiers: keyboard::Modifiers) -> Recorde
         return Recorded::Unsupported;
     };
     let modifiers = modifiers_of(modifiers);
-    if [Modifiers::CONTROL, Modifiers::ALT, Modifiers::SUPER]
-        .into_iter()
-        .any(|modifier| modifiers.contains(modifier))
+    if key == Key::PrintScreen
+        || [Modifiers::CONTROL, Modifiers::ALT, Modifiers::SUPER]
+            .into_iter()
+            .any(|modifier| modifiers.contains(modifier))
     {
         Recorded::Hotkey(Hotkey::new(modifiers, key))
     } else {
@@ -250,6 +252,18 @@ mod tests {
             assert_eq!(press(Code::KeyK, held), Recorded::NeedsModifier, "{held:?}");
             assert_eq!(press(Code::F5, held), Recorded::NeedsModifier, "{held:?}");
         }
+    }
+
+    #[test]
+    fn print_screen_needs_no_modifier() {
+        assert_eq!(
+            press(Code::PrintScreen, keyboard::Modifiers::empty()),
+            hotkey("PrintScreen")
+        );
+        assert_eq!(
+            press(Code::PrintScreen, keyboard::Modifiers::SHIFT),
+            hotkey("Shift+PrintScreen")
+        );
     }
 
     #[test]
