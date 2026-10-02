@@ -580,7 +580,7 @@ mod tests {
         let mut doc = document();
         // No background, so the text's bounds are its layout box.
         let bare = Style {
-            text_background: Rgba8::TRANSPARENT,
+            text_background_opacity: 0,
             ..Style::default()
         };
         let text = doc.add(Shape::Text(Text::new(Point::ORIGIN, "hi")), bare);

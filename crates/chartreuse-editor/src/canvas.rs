@@ -99,7 +99,7 @@
 //!   [`BlurMode`], or an annotation beneath it that can reach it changes (as
 //!   drawn, so a preview of those updates it too).
 //! - Text is first its background, [`Text::background`] filled with the
-//!   style's `text_background` color (none if that is fully transparent),
+//!   style's `text_background_fill` (none if that is fully transparent),
 //!   then iced canvas text: shaped by cosmic-text and rasterized by the
 //!   renderer's glyph cache, in [`font::FONT`], at `font_size` with a line
 //!   height of `font_size × Text::LINE_HEIGHT` (both × `scale`), the layout

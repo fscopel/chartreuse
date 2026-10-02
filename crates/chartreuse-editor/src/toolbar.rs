@@ -222,7 +222,7 @@ impl Panel {
                 made,
                 |f| f.text_background,
                 &style,
-                |s| s.text_background.a,
+                |s| s.text_background_opacity,
             ),
         }
     }
@@ -685,7 +685,9 @@ mod tests {
                 font_size: Control::Shown(Some(40.0)),
                 blur: Control::Hidden,
                 text_background: Control::Shown(Some(WHITE)),
-                text_background_opacity: Control::Shown(Some(Style::DEFAULT_TEXT_BACKGROUND.a)),
+                text_background_opacity: Control::Shown(Some(
+                    Style::DEFAULT_TEXT_BACKGROUND_OPACITY
+                )),
             }
         );
 
@@ -703,7 +705,13 @@ mod tests {
         // So does its background's opacity, keeping its color.
         editor.update(Message::TextBackgroundOpacity(0));
         let text = &editor.document().annotations()[1];
-        assert_eq!(text.style.text_background, Rgba8::new(255, 255, 255, 0));
+        assert_eq!(
+            (
+                text.style.text_background,
+                text.style.text_background_opacity
+            ),
+            (WHITE, 0)
+        );
     }
 
     #[test]

@@ -203,7 +203,7 @@ impl Editor {
             }
             Message::TextBackground(color) => {
                 self.restyle(StylePatch {
-                    text_background_color: Some(color),
+                    text_background: Some(color),
                     ..StylePatch::default()
                 });
                 None

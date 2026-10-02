@@ -37,10 +37,13 @@ pub struct Style {
     pub font_size: f32,
     /// How a blur region obscures what is beneath it.
     pub blur: BlurMode,
-    /// What a text annotation's background is filled with (straight alpha):
-    /// its alpha is the background's opacity, and zero means none. See
+    /// The color a text annotation's background is filled with (its alpha is
+    /// ignored), at `text_background_opacity`. See
+    /// [`Style::text_background_fill`] and
     /// [`Text::background`](super::Text::background).
     pub text_background: Rgba8,
+    /// The text background's opacity (alpha).
+    pub text_background_opacity: u8,
 }
 
 /// How a [blur region](super::BlurRegion) obscures what is beneath it.
@@ -76,7 +79,8 @@ impl Style {
 
     /// The default text background: white, 90% opaque (the toolbar's 90%),
     /// so text reads on any screenshot.
-    pub const DEFAULT_TEXT_BACKGROUND: Rgba8 = Rgba8::new(0xff, 0xff, 0xff, 230);
+    pub const DEFAULT_TEXT_BACKGROUND: Rgba8 = Rgba8::WHITE;
+    pub const DEFAULT_TEXT_BACKGROUND_OPACITY: u8 = 230;
 
     /// The default corner radius: barely rounded.
     pub const DEFAULT_CORNER_RADIUS: f32 = 3.0;
@@ -90,12 +94,20 @@ impl Style {
             corner_radius: patch.corner_radius.unwrap_or(self.corner_radius),
             font_size: patch.font_size.unwrap_or(self.font_size),
             blur: patch.blur.unwrap_or(self.blur),
-            text_background: Rgba8 {
-                a: patch
-                    .text_background_opacity
-                    .unwrap_or(self.text_background.a),
-                ..patch.text_background_color.unwrap_or(self.text_background)
-            },
+            text_background: patch.text_background.unwrap_or(self.text_background),
+            text_background_opacity: patch
+                .text_background_opacity
+                .unwrap_or(self.text_background_opacity),
+        }
+    }
+
+    /// What fills a text annotation's background (straight alpha): its color
+    /// at its opacity. Fully transparent fills draw nothing.
+    #[must_use]
+    pub const fn text_background_fill(&self) -> Rgba8 {
+        Rgba8 {
+            a: self.text_background_opacity,
+            ..self.text_background
         }
     }
 }
@@ -109,6 +121,7 @@ impl Default for Style {
             font_size: 24.0,
             blur: BlurMode::default(),
             text_background: Self::DEFAULT_TEXT_BACKGROUND,
+            text_background_opacity: Self::DEFAULT_TEXT_BACKGROUND_OPACITY,
         }
     }
 }
@@ -124,7 +137,7 @@ pub struct StylePatch {
     pub blur: Option<BlurMode>,
     /// The text background's color; its alpha is ignored (the opacity is
     /// `text_background_opacity`), so the two change independently.
-    pub text_background_color: Option<Rgba8>,
+    pub text_background: Option<Rgba8>,
     /// The text background's opacity: its alpha.
     pub text_background_opacity: Option<u8>,
 }
@@ -139,9 +152,7 @@ impl StylePatch {
             corner_radius: self.corner_radius.filter(|_| fields.corner_radius),
             font_size: self.font_size.filter(|_| fields.font_size),
             blur: self.blur.filter(|_| fields.blur),
-            text_background_color: self
-                .text_background_color
-                .filter(|_| fields.text_background),
+            text_background: self.text_background.filter(|_| fields.text_background),
             text_background_opacity: self
                 .text_background_opacity
                 .filter(|_| fields.text_background),
@@ -238,19 +249,19 @@ mod tests {
     fn the_text_backgrounds_color_and_opacity_change_independently() {
         let style = Style::default();
         let recolored = style.patched(&StylePatch {
-            text_background_color: Some(Rgba8::new(0, 0, 0, 12)),
+            text_background: Some(Rgba8::new(0, 0, 0, 12)),
             ..StylePatch::default()
         });
         assert_eq!(
-            recolored.text_background,
-            Rgba8::new(0, 0, 0, Style::DEFAULT_TEXT_BACKGROUND.a),
+            recolored.text_background_fill(),
+            Rgba8::new(0, 0, 0, Style::DEFAULT_TEXT_BACKGROUND_OPACITY),
             "the color's own alpha is ignored"
         );
         let faded = recolored.patched(&StylePatch {
             text_background_opacity: Some(0),
             ..StylePatch::default()
         });
-        assert_eq!(faded.text_background, Rgba8::new(0, 0, 0, 0));
+        assert_eq!(faded.text_background_fill(), Rgba8::new(0, 0, 0, 0));
     }
 
     #[test]
@@ -261,7 +272,7 @@ mod tests {
             corner_radius: Some(5.0),
             font_size: Some(30.0),
             blur: Some(BlurMode::Gaussian),
-            text_background_color: Some(Rgba8::rgb(4, 5, 6)),
+            text_background: Some(Rgba8::rgb(4, 5, 6)),
             text_background_opacity: Some(7),
         };
         assert_eq!(

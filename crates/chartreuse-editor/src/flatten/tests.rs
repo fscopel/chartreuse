@@ -246,7 +246,8 @@ fn translucent_colors_blend_source_over_in_straight_alpha() {
         [(
             Shape::Text(Text::new(Point::new(5.0, 5.0), "")),
             Style {
-                text_background: red,
+                text_background: Rgba8::rgb(255, 0, 0),
+                text_background_opacity: red.a,
                 ..Style::default()
             },
         )]
@@ -393,7 +394,7 @@ fn text_is_drawn_in_its_color_only_around_its_layout_box() {
     let style = Style {
         color: BLUE,
         font_size: 36.0,
-        text_background: Rgba8::TRANSPARENT,
+        text_background_opacity: 0,
         ..Style::default()
     };
     let position = Point::new(10.25, 6.5);

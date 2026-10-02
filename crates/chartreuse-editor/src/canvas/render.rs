@@ -203,11 +203,12 @@ pub fn shadow(frame: &mut Frame, viewport: &Viewport, shadow: &Shadow) {
 /// The background of text whose layout box is `bounds`, in `style` (see
 /// [`Text::background`]); nothing if it is fully transparent.
 pub fn text_background(frame: &mut Frame, viewport: &Viewport, bounds: Rect, style: &Style) {
-    if style.text_background.a == 0 {
+    let fill = style.text_background_fill();
+    if fill.a == 0 {
         return;
     }
     let rect = viewport.to_canvas_rect(Text::background(bounds, style.font_size));
-    frame.fill_rectangle(rect.position(), rect.size(), color(style.text_background));
+    frame.fill_rectangle(rect.position(), rect.size(), color(fill));
 }
 
 /// Annotation text as canvas text at canvas position `position`, `scale`

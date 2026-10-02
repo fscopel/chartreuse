@@ -62,7 +62,7 @@ fn text_style(color: Rgba8, font_size: f32) -> Style {
     Style {
         color,
         font_size,
-        text_background: Rgba8::TRANSPARENT,
+        text_background_opacity: 0,
         ..Style::default()
     }
 }
