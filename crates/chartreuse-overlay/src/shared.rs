@@ -18,12 +18,23 @@ use iced::{Color, ContentFit, Element, Fill, Point, Rectangle, Size, Vector};
 pub const DIM: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.45);
 /// The width of a selection border, in canvas units.
 pub(crate) const BORDER_WIDTH: f32 = 2.0;
-/// A label's text size and the padding around it on its pill, in canvas units.
-pub(crate) const LABEL_TEXT_SIZE: f32 = 13.0;
-const LABEL_PADDING: f32 = 5.0;
-/// A label's text color; it sits on an accent-colored pill, and both flavor
-/// accents are bright.
-const LABEL_TEXT: Color = Color::BLACK;
+/// A pill's text color; pills are accent-colored, and both flavor accents are
+/// bright.
+const PILL_TEXT: Color = Color::BLACK;
+
+/// How a pill's text is set: its size and the padding around it, in canvas
+/// units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PillStyle {
+    pub(crate) text_size: f32,
+    padding: f32,
+}
+
+/// The labels by a selection: its output size, a window's name.
+pub(crate) const LABEL: PillStyle = PillStyle {
+    text_size: 13.0,
+    padding: 5.0,
+};
 
 /// Builds the iced image handle for one display's frozen capture, drawn under an
 /// overlay's canvas. Consumes the image without copying its pixels; clone the
@@ -208,36 +219,37 @@ pub(crate) fn border_within(frame: &mut Frame, rect: Rectangle, color: Color) {
     );
 }
 
-/// The size of `content` set as a label's text (on one line), measured with the
-/// same font and shaping [`draw_pill`] draws it with.
-pub(crate) fn measure_label(content: &str) -> Size {
-    let style = canvas::Text::default();
+/// The size of `content` set in `style` (on one line), measured with the same
+/// font and shaping [`draw_pill`] draws it with.
+pub(crate) fn measure_text(content: &str, style: PillStyle) -> Size {
+    let text = canvas::Text::default();
     Paragraph::with_text(Text {
         content,
         bounds: Size::INFINITE,
-        size: LABEL_TEXT_SIZE.into(),
-        line_height: style.line_height,
-        font: style.font,
+        size: style.text_size.into(),
+        line_height: text.line_height,
+        font: text.font,
         align_x: Alignment::Center,
         align_y: Vertical::Center,
-        shaping: style.shaping,
+        shaping: text.shaping,
         wrapping: Wrapping::None,
     })
     .min_bounds()
 }
 
-/// The size of the pill holding a label whose text measures `text`.
-pub(crate) fn pill_size(text: Size) -> Size {
-    text.expand(Size::new(2.0 * LABEL_PADDING, 2.0 * LABEL_PADDING))
+/// The size of the pill holding text in `style` that measures `text`.
+pub(crate) fn pill_size(text: Size, style: PillStyle) -> Size {
+    text.expand(Size::new(2.0 * style.padding, 2.0 * style.padding))
 }
 
-/// Draws `content` centered on an `accent`-colored pill of size `pill` (see
-/// [`pill_size`]) at `top_left`, in frame coordinates.
+/// Draws `content` in `style` centered on an `accent`-colored pill of size
+/// `pill` (see [`pill_size`]) at `top_left`, in frame coordinates.
 pub(crate) fn draw_pill(
     frame: &mut Frame,
     top_left: Point,
     pill: Size,
     content: String,
+    style: PillStyle,
     accent: Color,
 ) {
     frame.fill(
@@ -247,8 +259,8 @@ pub(crate) fn draw_pill(
     frame.fill_text(canvas::Text {
         content,
         position: top_left + Vector::new(pill.width / 2.0, pill.height / 2.0),
-        color: LABEL_TEXT,
-        size: LABEL_TEXT_SIZE.into(),
+        color: PILL_TEXT,
+        size: style.text_size.into(),
         align_x: Alignment::Center,
         align_y: Vertical::Center,
         ..canvas::Text::default()

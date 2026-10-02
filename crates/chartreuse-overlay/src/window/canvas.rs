@@ -8,7 +8,7 @@ use iced::widget::image::Handle;
 use iced::{keyboard, mouse, Color, Element, Fill, Rectangle, Renderer, Theme};
 
 use super::selection::{Input, WindowSelection};
-use crate::shared::{self, PointerState, Projection};
+use crate::shared::{self, PointerState, Projection, LABEL};
 
 /// The most characters of a title the label shows; longer ones are cut short
 /// with an ellipsis.
@@ -203,7 +203,7 @@ impl<F> WindowOverlay<'_, F> {
         let Some(content) = label_text(window) else {
             return;
         };
-        let pill = shared::pill_size(shared::measure_label(&content));
+        let pill = shared::pill_size(shared::measure_text(&content, LABEL), LABEL);
         let Some(origin) = label_origin(
             self.selection.layout(),
             &window.bounds,
@@ -216,6 +216,7 @@ impl<F> WindowOverlay<'_, F> {
             projection.to_frame(origin),
             pill,
             content,
+            LABEL,
             self.accent,
         );
     }

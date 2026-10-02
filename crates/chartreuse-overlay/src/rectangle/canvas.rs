@@ -7,7 +7,7 @@ use iced::widget::image::Handle;
 use iced::{keyboard, mouse, Color, Element, Fill, Rectangle, Renderer, Size, Theme};
 
 use super::selection::{output_grid, Input, Selection};
-use crate::shared::{self, PointerState, Projection, LABEL_TEXT_SIZE};
+use crate::shared::{self, PointerState, Projection, LABEL};
 
 /// The distance between the size label and the selection, in canvas units.
 const LABEL_GAP: f32 = 6.0;
@@ -201,8 +201,8 @@ impl<F> RectangleOverlay<'_, F> {
         let content = format!("{} × {}", size.width, size.height);
         // An estimate: iced's canvas has no text measurement, and digits are
         // about 0.6 em wide in the default fonts.
-        let text_width = content.chars().count() as f32 * LABEL_TEXT_SIZE * 0.6;
-        let pill = shared::pill_size(Size::new(text_width, LABEL_TEXT_SIZE * 1.3));
+        let text_width = content.chars().count() as f32 * LABEL.text_size * 0.6;
+        let pill = shared::pill_size(Size::new(text_width, LABEL.text_size * 1.3), LABEL);
         let corner = LogicalPoint::new(rect.max_x(), rect.max_y());
         let area = layout.nearest_display(corner).logical_bounds;
         let gap = projection
@@ -214,6 +214,7 @@ impl<F> RectangleOverlay<'_, F> {
             projection.to_frame(origin),
             pill,
             content,
+            LABEL,
             self.accent,
         );
     }
