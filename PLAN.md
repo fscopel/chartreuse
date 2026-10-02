@@ -101,6 +101,9 @@ reported to the user.
   pressed, so transient content (menus, tooltips, hover states) can be captured.
 - Escape cancels. Releasing the pointer commits the selection and opens the editor.
 - Space, while no drag is in progress, switches to window selection.
+- Until the first drag or Space press, each display shows "Press SPACE to capture a
+  window" on an accent-colored pill, centered horizontally about 70% of the way down
+  (not shown when windows cannot be selected).
 - Selections may span displays.
 
 ### Window-selection overlay

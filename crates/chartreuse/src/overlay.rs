@@ -16,7 +16,9 @@
 //!    window selection highlights the window under the pointer when Space was
 //!    pressed over it, else nothing until the pointer moves: the platform
 //!    traits do not expose the pointer's position yet (macOS could report it
-//!    with `NSEvent.mouseLocation`, Windows with `GetCursorPos`).
+//!    with `NSEvent.mouseLocation`, Windows with `GetCursorPos`). Where Space
+//!    selects windows, every display's rectangle overlay shows
+//!    [`SPACE_HINT`] until the first drag or Space press.
 //! 2. Every overlay's pointer, Escape and Space input goes to that selector
 //!    ([`Message::Rectangle`], [`Message::Window`]). Keys reach the focused
 //!    overlay only: the platform style activates the app and makes each
@@ -49,6 +51,10 @@ use crate::app::{App, Message as AppMessage};
 use crate::capture::{self, Snapshot};
 use crate::theme;
 use crate::windows::WindowKind;
+
+/// The hint on the rectangle overlays while Space can switch to selecting
+/// windows.
+const SPACE_HINT: &str = "Press SPACE to capture a window";
 
 /// This feature's part of the app state ([`App::overlay`]).
 #[derive(Debug, Default)]
@@ -85,6 +91,9 @@ pub struct Selector {
     gesture: Gesture,
     /// How to select windows.
     windows: Windows,
+    /// Whether the rectangle overlays show [`SPACE_HINT`]: until the first
+    /// drag or Space press, when Space selects windows at all.
+    hint: bool,
 }
 
 /// The selection gesture a [`Selector`] is in.
@@ -102,6 +111,7 @@ impl Selector {
     const fn new(layout: DisplayLayout, windows: Windows) -> Self {
         Self {
             gesture: Gesture::Rectangle(Selection::new(layout)),
+            hint: !matches!(windows, Windows::Unavailable),
             windows,
         }
     }
@@ -118,12 +128,17 @@ impl Selector {
     /// the capture flow if it ended the selection.
     fn rectangle(&mut self, input: rectangle::Input) -> Option<capture::Message> {
         if let rectangle::Input::Space(pointer) = input {
+            self.hint = false;
             return self.switch_to_windows(pointer);
         }
         let Gesture::Rectangle(selection) = &mut self.gesture else {
             return None;
         };
-        selection.apply(input).map(|outcome| match outcome {
+        let outcome = selection.apply(input);
+        if matches!(selection.phase(), rectangle::Phase::Dragging { .. }) {
+            self.hint = false;
+        }
+        outcome.map(|outcome| match outcome {
             rectangle::Outcome::Commit(rect) => capture::Message::Selected(rect),
             rectangle::Outcome::Cancel => capture::Message::SelectionCancelled,
         })
@@ -219,6 +234,7 @@ impl Session {
                 RectangleOverlay::new(selection, info, image, accent, |input| {
                     AppMessage::Overlay(Message::Rectangle(input))
                 })
+                .hint(self.selector.hint.then_some(SPACE_HINT))
                 .view()
             }
             Gesture::Window(selection) => {
@@ -359,4 +375,52 @@ fn end(session: &Session, reply: capture::Message) -> Task<AppMessage> {
         session.windows.close_all(),
         Task::done(AppMessage::Capture(reply)),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use chartreuse_platform::fake;
+
+    use super::*;
+
+    fn selector(windows: Windows) -> Selector {
+        let layout =
+            DisplayLayout::new(fake::default_displays()).expect("the fake displays form a layout");
+        Selector::new(layout, windows)
+    }
+
+    fn pt(x: f64, y: f64) -> LogicalPoint {
+        LogicalPoint::new(x, y)
+    }
+
+    #[test]
+    fn the_hint_shows_until_the_first_drag() {
+        let mut selector = selector(Windows::Listed(Vec::new()));
+        assert!(selector.hint);
+        // A click is no drag.
+        selector.rectangle(rectangle::Input::Press(pt(100.0, 100.0)));
+        selector.rectangle(rectangle::Input::Release(pt(100.0, 100.0)));
+        assert!(selector.hint);
+        selector.rectangle(rectangle::Input::Press(pt(100.0, 100.0)));
+        selector.rectangle(rectangle::Input::Move(pt(300.0, 300.0)));
+        assert!(!selector.hint);
+    }
+
+    #[test]
+    fn space_removes_the_hint_for_good() {
+        let mut selector = selector(Windows::Listed(Vec::new()));
+        selector.rectangle(rectangle::Input::Space(None));
+        assert!(matches!(selector.gesture, Gesture::Window(_)));
+        assert!(!selector.hint);
+        // Back to the rectangle: still gone.
+        selector.window(window_selection::Input::Space(None));
+        assert!(matches!(selector.gesture, Gesture::Rectangle(_)));
+        assert!(!selector.hint);
+    }
+
+    #[test]
+    fn no_hint_when_space_cannot_select_windows() {
+        assert!(!selector(Windows::Unavailable).hint);
+        assert!(selector(Windows::Platform).hint);
+    }
 }

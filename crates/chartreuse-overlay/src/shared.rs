@@ -1,7 +1,7 @@
 //! Pieces shared by the selection overlays ([`crate::rectangle`] and
 //! [`crate::window`]): the mapping between one display's canvas and global
-//! coordinates, the frozen-capture layer under the canvas, and the dim, border
-//! and label drawing.
+//! coordinates, the frozen-capture layer under the canvas, and the dim, border,
+//! label and hint drawing.
 
 use chartreuse_core::display::DisplayInfo;
 use chartreuse_core::geometry::{LogicalPoint, LogicalRect, LogicalSize};
@@ -21,6 +21,8 @@ pub(crate) const BORDER_WIDTH: f32 = 2.0;
 /// A pill's text color; pills are accent-colored, and both flavor accents are
 /// bright.
 const PILL_TEXT: Color = Color::BLACK;
+/// How far down the canvas a hint's center sits, as a fraction of its height.
+const HINT_HEIGHT_FRACTION: f32 = 0.7;
 
 /// How a pill's text is set: its size and the padding around it, in canvas
 /// units.
@@ -34,6 +36,11 @@ pub(crate) struct PillStyle {
 pub(crate) const LABEL: PillStyle = PillStyle {
     text_size: 13.0,
     padding: 5.0,
+};
+/// A hint on how to use the overlay, read from a distance.
+const HINT: PillStyle = PillStyle {
+    text_size: 22.0,
+    padding: 12.0,
 };
 
 /// Builds the iced image handle for one display's frozen capture, drawn under an
@@ -265,6 +272,18 @@ pub(crate) fn draw_pill(
         align_y: Vertical::Center,
         ..canvas::Text::default()
     });
+}
+
+/// Draws `content` as a hint on an `accent`-colored pill over `area` (the
+/// whole canvas, in frame coordinates): centered across it,
+/// [`HINT_HEIGHT_FRACTION`] of the way down.
+pub(crate) fn draw_hint(frame: &mut Frame, area: Rectangle, content: &str, accent: Color) {
+    let pill = pill_size(measure_text(content, HINT), HINT);
+    let top_left = Point::new(
+        area.x + (area.width - pill.width) / 2.0,
+        area.y + area.height * HINT_HEIGHT_FRACTION - pill.height / 2.0,
+    );
+    draw_pill(frame, top_left, pill, content.to_owned(), HINT, accent);
 }
 
 #[cfg(test)]

@@ -14,7 +14,8 @@ const LABEL_GAP: f32 = 6.0;
 
 /// The rectangle-selection overlay for one display: the display's frozen
 /// capture, a translucent dim over everything but the selection, the selection
-/// border in the accent color, and a label with the output size in pixels.
+/// border in the accent color, a label with the output size in pixels, and
+/// optionally a hint on an accent-colored pill.
 ///
 /// Build one per overlay window from the shared [`Selection`] in each `view` and
 /// show it with [`RectangleOverlay::view`]. It turns pointer, Escape and Space
@@ -36,6 +37,7 @@ pub struct RectangleOverlay<'a, F> {
     image: &'a Handle,
     accent: Color,
     size_label: bool,
+    hint: Option<&'a str>,
     on_input: F,
 }
 
@@ -46,6 +48,7 @@ impl<F> std::fmt::Debug for RectangleOverlay<'_, F> {
             .field("display", &self.display.id)
             .field("accent", &self.accent)
             .field("size_label", &self.size_label)
+            .field("hint", &self.hint)
             .finish_non_exhaustive()
     }
 }
@@ -67,6 +70,7 @@ impl<'a, F> RectangleOverlay<'a, F> {
             image,
             accent,
             size_label: true,
+            hint: None,
             on_input,
         }
     }
@@ -75,6 +79,14 @@ impl<'a, F> RectangleOverlay<'a, F> {
     #[must_use]
     pub const fn size_label(mut self, show: bool) -> Self {
         self.size_label = show;
+        self
+    }
+
+    /// Shows `hint` (if any) centered across the display, below its middle.
+    /// None is shown by default.
+    #[must_use]
+    pub const fn hint(mut self, hint: Option<&'a str>) -> Self {
+        self.hint = hint;
         self
     }
 
@@ -173,6 +185,9 @@ where
             && let Some(rect) = rect
         {
             self.draw_size_label(&mut frame, &projection, &rect);
+        }
+        if let Some(hint) = self.hint {
+            shared::draw_hint(&mut frame, area, hint, self.accent);
         }
         vec![frame.into_geometry()]
     }
