@@ -10,7 +10,7 @@ use iced::{keyboard, Element};
 
 use crate::canvas::{self, Input, InputKind, View, Viewport, Zoom, ZOOM_STEP};
 use crate::font;
-use crate::model::{BlurMode, Command, Document, Rect, Shape, Style, StylePatch};
+use crate::model::{BlurMode, Command, Document, Rect, Shape, Style, StylePatch, TextBackground};
 use crate::toolbar::{toolbar, zoom_controls};
 use crate::tools::{Context, Pointer, ResizeInput, TextInput, Tool, ToolKind};
 
@@ -38,11 +38,11 @@ pub enum Message {
     /// Sets how blur regions obscure what is beneath them, like
     /// [`Message::Color`].
     BlurMode(BlurMode),
-    /// Sets the text background's color, keeping its opacity, like
-    /// [`Message::Color`].
-    TextBackground(Rgba8),
+    /// Sets the text background's color (or makes it transparent), keeping
+    /// its opacity, like [`Message::Color`].
+    TextBackground(TextBackground),
     /// Sets the text background's opacity (its alpha), keeping its color,
-    /// like [`Message::Color`].
+    /// like [`Message::Color`]. A transparent background stays so.
     TextBackgroundOpacity(u8),
     /// Uncrops the document (one undo step), dropping any crop being edited.
     ClearCrop,
@@ -201,9 +201,9 @@ impl Editor {
                 });
                 None
             }
-            Message::TextBackground(color) => {
+            Message::TextBackground(background) => {
                 self.restyle(StylePatch {
-                    text_background: Some(color),
+                    text_background: Some(background),
                     ..StylePatch::default()
                 });
                 None

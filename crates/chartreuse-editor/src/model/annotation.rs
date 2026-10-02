@@ -1030,7 +1030,7 @@ mod tests {
         let text = Text::new(Point::new(10.0, 20.0), "hello");
         let style = Style {
             font_size: 10.0,
-            text_background_opacity: 0,
+            text_background: crate::model::TextBackground::Transparent,
             ..Style::default()
         };
         // Estimated box: (10, 20) to (40, 32).
@@ -1043,7 +1043,7 @@ mod tests {
 
         // A background that shows is part of the text: the box grown by 2.
         let backed = Style {
-            text_background_opacity: Style::DEFAULT_TEXT_BACKGROUND_OPACITY,
+            text_background: Style::DEFAULT_TEXT_BACKGROUND,
             ..style
         };
         assert!(shape.hit(&backed, Point::new(42.0, 34.0), 0.0));

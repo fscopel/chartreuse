@@ -414,7 +414,7 @@ mod tests {
     use super::super::annotation::{Arrow, Line, Rectangle, StepMarker, Text};
     use super::super::geometry::Vector;
     use super::super::history::Reorder;
-    use super::super::style::StylePatch;
+    use super::super::style::{StylePatch, TextBackground};
     use super::*;
 
     fn document() -> Document {
@@ -580,7 +580,7 @@ mod tests {
         let mut doc = document();
         // No background, so the text's bounds are its layout box.
         let bare = Style {
-            text_background_opacity: 0,
+            text_background: TextBackground::Transparent,
             ..Style::default()
         };
         let text = doc.add(Shape::Text(Text::new(Point::ORIGIN, "hi")), bare);

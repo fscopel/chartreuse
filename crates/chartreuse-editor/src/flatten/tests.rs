@@ -7,7 +7,7 @@ use crate::font;
 use crate::model::{
     distance_to_ellipse, distance_to_polyline, distance_to_segment, distance_to_tapered_segment,
     distance_to_triangle, Arrow, BlurMode, BlurRegion, Command, Ellipse, Line, Polyline, Rect,
-    Rectangle, StepMarker, Style, Text,
+    Rectangle, StepMarker, Style, Text, TextBackground,
 };
 
 /// How far outside a shape's edge a pixel's center can be and still be
@@ -246,7 +246,7 @@ fn translucent_colors_blend_source_over_in_straight_alpha() {
         [(
             Shape::Text(Text::new(Point::new(5.0, 5.0), "")),
             Style {
-                text_background: Rgba8::rgb(255, 0, 0),
+                text_background: TextBackground::Color(Rgba8::rgb(255, 0, 0)),
                 text_background_opacity: red.a,
                 ..Style::default()
             },
@@ -394,7 +394,7 @@ fn text_is_drawn_in_its_color_only_around_its_layout_box() {
     let style = Style {
         color: BLUE,
         font_size: 36.0,
-        text_background_opacity: 0,
+        text_background: TextBackground::Transparent,
         ..Style::default()
     };
     let position = Point::new(10.25, 6.5);

@@ -21,7 +21,7 @@ use chartreuse_core::image::Image;
 use chartreuse_editor::flatten::flatten;
 use chartreuse_editor::model::{
     Arrow, BlurMode, BlurRegion, Command, Document, Ellipse, Line, Point, Polyline, Rect,
-    Rectangle, Shape, StepMarker, Style, Text,
+    Rectangle, Shape, StepMarker, Style, Text, TextBackground,
 };
 use chartreuse_imaging::{decode, encode, Format};
 
@@ -62,7 +62,7 @@ fn text_style(color: Rgba8, font_size: f32) -> Style {
     Style {
         color,
         font_size,
-        text_background_opacity: 0,
+        text_background: TextBackground::Transparent,
         ..Style::default()
     }
 }

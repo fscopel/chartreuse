@@ -52,4 +52,4 @@ pub use geometry::{
     distance_to_triangle, Point, Rect, Size, Vector,
 };
 pub use history::{Command, Reorder};
-pub use style::{BlurMode, Style, StyleFields, StylePatch};
+pub use style::{BlurMode, Style, StyleFields, StylePatch, TextBackground};

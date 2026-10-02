@@ -22,8 +22,12 @@
 //! within [`STROKE_RANGE`], [`RADIUS_RANGE`], or [`FONT_RANGE`]. The arrows
 //! are disabled while the selected annotations' sizes differ.
 //!
-//! Text's background has its own swatches, for its color, and a list of
-//! [`OPACITIES`]; each changes only its part of the background.
+//! Text's background has its own swatches, for its color, ending with
+//! Transparent (black at 0% opacity, whatever the opacity chosen), and a
+//! list of [`OPACITIES`]; each changes only its part of the background, so
+//! the opacity kept while transparent applies again once a color is chosen.
+//! A background that shows nothing (transparent, or any color at 0%) shows
+//! as Transparent.
 //!
 //! [`Shape::style_fields`]: crate::model::Shape::style_fields
 //!
@@ -41,7 +45,7 @@ use iced::{Alignment, Background, Border, Element, Length, Padding, Theme};
 
 use crate::canvas;
 use crate::editor::{Message, ZoomChange};
-use crate::model::{Annotation, BlurMode, Document, Style, StyleFields};
+use crate::model::{Annotation, BlurMode, Document, Style, StyleFields, TextBackground};
 use crate::tools::{Preview, ResizeInput, ResizeTool, ResizeUnit, ToolKind};
 use crate::Editor;
 
@@ -69,6 +73,10 @@ const ICON_SIZE: f32 = 18.0;
 /// The undo and redo buttons' icons (Lucide's undo-2 and redo-2).
 const UNDO_ICON: &[u8] = include_bytes!("../assets/icons/undo.svg");
 const REDO_ICON: &[u8] = include_bytes!("../assets/icons/redo.svg");
+
+/// The red slash across the Transparent background swatch, kept inside the
+/// chosen swatch's ring.
+const TRANSPARENT_SLASH: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><line x1="3.5" y1="14.5" x2="14.5" y2="3.5" stroke="#ff3b30" stroke-width="2" stroke-linecap="round"/></svg>"##;
 
 /// The font sizes on offer, in image pixels.
 pub const FONT_SIZES: [f32; 9] = [12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 96.0];
@@ -172,8 +180,9 @@ struct Panel {
     corner_radius: Control<f32>,
     font_size: Control<f32>,
     blur: Control<BlurMode>,
-    /// The text background's color, opaque.
-    text_background: Control<Rgba8>,
+    /// The text background's color, or transparent if it shows nothing
+    /// (transparent, or any color at 0% opacity).
+    text_background: Control<TextBackground>,
     /// The text background's opacity (alpha).
     text_background_opacity: Control<u8>,
 }
@@ -212,9 +221,12 @@ impl Panel {
                 made,
                 |f| f.text_background,
                 &style,
-                |s| Rgba8 {
-                    a: u8::MAX,
-                    ..s.text_background
+                |s| {
+                    if s.text_background_fill().a == 0 {
+                        TextBackground::Transparent
+                    } else {
+                        s.text_background
+                    }
                 },
             ),
             text_background_opacity: control(
@@ -359,7 +371,9 @@ pub(crate) fn toolbar(editor: &Editor) -> Element<'_, Message> {
         .map(|(chosen, opacity)| {
             let swatches = COLORS
                 .into_iter()
-                .map(|color| swatch(color, Some(color) == chosen, Message::TextBackground(color)));
+                .map(TextBackground::Color)
+                .chain([TextBackground::Transparent])
+                .map(|background| background_swatch(background, Some(background) == chosen));
             let opacity = pick_list(&OPACITY_OPTIONS[..], opacity.map(Opacity), |Opacity(a)| {
                 Message::TextBackgroundOpacity(a)
             })
@@ -549,8 +563,36 @@ fn group<'a>(items: impl IntoIterator<Item = Element<'a, Message>>) -> Row<'a, M
 /// A color swatch button sending `message`, ringed in the accent when
 /// `chosen`.
 fn swatch<'a>(color: Rgba8, chosen: bool, message: Message) -> Element<'a, Message> {
-    let fill = canvas::color(color);
-    button(space().width(SWATCH).height(SWATCH))
+    swatch_showing(color, space().width(SWATCH).height(SWATCH), chosen, message)
+}
+
+/// A text background swatch, ringed in the accent when `chosen`: a color, or
+/// Transparent as black with a red slash.
+fn background_swatch<'a>(background: TextBackground, chosen: bool) -> Element<'a, Message> {
+    let message = Message::TextBackground(background);
+    match background {
+        TextBackground::Color(color) => swatch(color, chosen, message),
+        TextBackground::Transparent => swatch_showing(
+            Rgba8::BLACK,
+            svg(svg::Handle::from_memory(TRANSPARENT_SLASH))
+                .width(SWATCH)
+                .height(SWATCH),
+            chosen,
+            message,
+        ),
+    }
+}
+
+/// A swatch button filled with `fill` under `content` (a swatch in size),
+/// sending `message`, ringed in the accent when `chosen`.
+fn swatch_showing<'a>(
+    fill: Rgba8,
+    content: impl Into<Element<'a, Message>>,
+    chosen: bool,
+    message: Message,
+) -> Element<'a, Message> {
+    let fill = canvas::color(fill);
+    button(content)
         .padding(0)
         .on_press(message)
         .style(move |theme: &Theme, status| {
@@ -684,7 +726,7 @@ mod tests {
                 corner_radius: Control::Hidden,
                 font_size: Control::Shown(Some(40.0)),
                 blur: Control::Hidden,
-                text_background: Control::Shown(Some(WHITE)),
+                text_background: Control::Shown(Some(TextBackground::Color(WHITE))),
                 text_background_opacity: Control::Shown(Some(
                     Style::DEFAULT_TEXT_BACKGROUND_OPACITY
                 )),
@@ -710,7 +752,54 @@ mod tests {
                 text.style.text_background,
                 text.style.text_background_opacity
             ),
-            (WHITE, 0)
+            (TextBackground::Color(WHITE), 0)
+        );
+    }
+
+    #[test]
+    fn a_transparent_background_keeps_the_opacity_for_the_next_color() {
+        let mut editor = line_and_text();
+        click(&mut editor, at(25.0, 110.0));
+        let opacity = Control::Shown(Some(Style::DEFAULT_TEXT_BACKGROUND_OPACITY));
+        let shown = |editor: &Editor| {
+            let panel = Panel::of(editor);
+            (panel.text_background, panel.text_background_opacity)
+        };
+        let fill = |editor: &Editor| {
+            editor.document().annotations()[1]
+                .style
+                .text_background_fill()
+        };
+
+        editor.update(Message::TextBackground(TextBackground::Transparent));
+        assert_eq!(fill(&editor), Rgba8::TRANSPARENT);
+        assert_eq!(
+            shown(&editor),
+            (Control::Shown(Some(TextBackground::Transparent)), opacity),
+            "the opacity stays where it was"
+        );
+
+        editor.update(Message::TextBackground(TextBackground::Color(BLUE)));
+        assert_eq!(
+            fill(&editor),
+            Rgba8 {
+                a: Style::DEFAULT_TEXT_BACKGROUND_OPACITY,
+                ..BLUE
+            }
+        );
+        assert_eq!(
+            shown(&editor),
+            (Control::Shown(Some(TextBackground::Color(BLUE))), opacity)
+        );
+
+        // Any color at 0% shows nothing, so it shows as transparent.
+        editor.update(Message::TextBackgroundOpacity(0));
+        assert_eq!(
+            shown(&editor),
+            (
+                Control::Shown(Some(TextBackground::Transparent)),
+                Control::Shown(Some(0))
+            )
         );
     }
 
