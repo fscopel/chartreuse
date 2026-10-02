@@ -130,8 +130,9 @@ mod recorder;
 /// How often the settings file is checked for hand edits.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
-/// The size the settings window opens at.
-const WINDOW_SIZE: Size = Size::new(640.0, 680.0);
+/// The size the settings window opens at: tall enough to show every setting
+/// without scrolling (about 743 high), with room to spare for a note.
+const WINDOW_SIZE: Size = Size::new(640.0, 780.0);
 
 /// The width of a hotkey recorder.
 const RECORDER_WIDTH: f32 = 220.0;
