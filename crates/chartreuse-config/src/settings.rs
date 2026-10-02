@@ -13,8 +13,8 @@
 //! confirm_close_unsaved = true
 //!
 //! [hotkeys]
-//! display = "Ctrl+Alt+Shift+3"
-//! selection = "Ctrl+Alt+Shift+4"
+//! display = "Ctrl+Alt+Shift+3"    # "PrintScreen" on Windows
+//! selection = "Ctrl+Alt+Shift+4"  # "Ctrl+PrintScreen" on Windows
 //! ```
 //!
 //! Hotkeys use [`Hotkey`]'s text form (canonical `Ctrl+Alt+Shift+Super+Key`,
@@ -210,7 +210,9 @@ impl From<RelativeSaveDirectory> for chartreuse_core::Error {
 /// The global hotkey of each capture mode. No two modes share a hotkey.
 ///
 /// The defaults are Ctrl+Alt+Shift+3 (display) and +4 (selection), echoing the
-/// system screenshot shortcuts (Shift+Command+3/4) without clashing with them.
+/// macOS screenshot shortcuts (Shift+Command+3/4) without clashing with them.
+/// On Windows they are PrintScreen (display) and Ctrl+PrintScreen (selection),
+/// the key Windows users reach for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "HotkeysText", into = "HotkeysText")]
 pub struct Hotkeys {
@@ -288,10 +290,18 @@ impl Hotkeys {
 
 impl Default for Hotkeys {
     fn default() -> Self {
-        let hotkey = |key| Hotkey::new(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SHIFT, key);
-        Self {
-            display: hotkey(Key::Digit3),
-            selection: hotkey(Key::Digit4),
+        if cfg!(windows) {
+            Self {
+                display: Hotkey::new(Modifiers::NONE, Key::PrintScreen),
+                selection: Hotkey::new(Modifiers::CONTROL, Key::PrintScreen),
+            }
+        } else {
+            let hotkey =
+                |key| Hotkey::new(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SHIFT, key);
+            Self {
+                display: hotkey(Key::Digit3),
+                selection: hotkey(Key::Digit4),
+            }
         }
     }
 }
@@ -388,11 +398,16 @@ mod tests {
     #[test]
     fn defaults_match_the_documented_values() {
         let settings = Settings::default();
+        let (display, selection) = if cfg!(windows) {
+            ("PrintScreen", "Ctrl+PrintScreen")
+        } else {
+            ("Ctrl+Alt+Shift+3", "Ctrl+Alt+Shift+4")
+        };
         assert_eq!(
             settings.hotkeys.bindings(),
             [
-                (CaptureMode::Display, hotkey("Ctrl+Alt+Shift+3")),
-                (CaptureMode::Selection, hotkey("Ctrl+Alt+Shift+4")),
+                (CaptureMode::Display, hotkey(display)),
+                (CaptureMode::Selection, hotkey(selection)),
             ]
         );
         assert_eq!(settings.save_directory, None);

@@ -8,11 +8,12 @@
 //!
 //! `boot` schedules [`Message::Register`] (Carbon needs the running event loop),
 //! which registers the hotkeys from the settings ([`App::config`]), one per
-//! capture mode ([`bindings`]). By default they are Ctrl+Alt+Shift+3 (display),
-//! +4 (rectangle) and +5 (window), echoing the system screenshot shortcuts
-//! (Shift+Command+3/4/5) without clashing with them, since macOS keeps those
-//! for itself (see [`chartreuse_config::Hotkeys`]). Pressing one starts that
-//! capture (`capture::Message::Start`).
+//! capture mode ([`bindings`]). By default they are Ctrl+Alt+Shift+3 (display)
+//! and +4 (selection), echoing the macOS screenshot shortcuts
+//! (Shift+Command+3/4) without clashing with them, since macOS keeps those
+//! for itself; on Windows, PrintScreen and Ctrl+PrintScreen (see
+//! [`chartreuse_config::Hotkeys`]). Pressing one starts that capture
+//! (`capture::Message::Start`).
 //!
 //! # Failures
 //!
