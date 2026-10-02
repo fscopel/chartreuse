@@ -15,7 +15,8 @@
 //! selected annotations, or the ones the active tool makes (none, with the
 //! select, crop, or resize tool). It shows the value the selected
 //! annotations it applies to share (nothing, if they differ), or else the
-//! style for new annotations.
+//! style for new annotations. Switching to any tool but the select tool
+//! deselects everything, so a drawing tool starts with only its own controls.
 //!
 //! The stroke width, corner radius, and font size each offer a list of
 //! common sizes and a spinner, whose arrows step the size by one pixel
@@ -817,12 +818,40 @@ mod tests {
         // A region just drawn is selected: blurring it shows as its mode.
         drag(&mut editor, at(100.0, 100.0), at(200.0, 200.0));
         editor.update(Message::BlurMode(BlurMode::Gaussian));
+        assert_eq!(
+            Panel::of(&editor).blur,
+            Control::Shown(Some(BlurMode::Gaussian))
+        );
+    }
+
+    #[test]
+    fn another_drawing_tool_deselects_and_shows_only_its_own_controls() {
+        let mut editor = line_and_text();
+        editor.update(Message::Tool(ToolKind::Blur));
+        drag(&mut editor, at(100.0, 100.0), at(200.0, 200.0));
+        assert_eq!(editor.document().selection().len(), 1, "the region");
+
         editor.update(Message::Tool(ToolKind::Step));
+        assert!(editor.document().selection().is_empty());
         let step = Panel::of(&editor);
-        assert_eq!(step.blur, Control::Shown(Some(BlurMode::Gaussian)));
+        assert_eq!(step.blur, Control::Hidden, "the region is deselected");
         assert_eq!(step.font_size, Control::Shown(Some(40.0)), "for new steps");
         assert_eq!(step.stroke_width, Control::Hidden);
         assert_eq!(step.text_background, Control::Hidden, "steps have none");
+    }
+
+    #[test]
+    fn the_select_tool_keeps_the_selection() {
+        let mut editor = line_and_text();
+        editor.update(Message::Tool(ToolKind::Blur));
+        drag(&mut editor, at(100.0, 100.0), at(200.0, 200.0));
+        let selection = editor.document().selection().clone();
+        editor.update(Message::Tool(ToolKind::Select));
+        assert_eq!(editor.document().selection(), &selection);
+        assert_eq!(
+            Panel::of(&editor).blur,
+            Control::Shown(Some(BlurMode::Pixelate))
+        );
     }
 
     #[test]

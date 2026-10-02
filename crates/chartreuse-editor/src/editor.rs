@@ -357,9 +357,15 @@ impl Editor {
         None
     }
 
+    /// Switches to the `kind` tool, first finishing the current one. Any tool
+    /// but the select tool starts with nothing selected, so its options are
+    /// the only ones shown.
     fn set_tool(&mut self, kind: ToolKind) {
         if kind != self.tool.kind() {
             self.finish();
+            if kind != ToolKind::Select {
+                self.document.clear_selection();
+            }
             self.tool = kind.create(&self.document);
         }
     }
