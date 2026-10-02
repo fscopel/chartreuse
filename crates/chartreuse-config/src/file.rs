@@ -463,8 +463,9 @@ mod tests {
         save(&path, &Settings::default()).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("# Chartreuse settings."), "{text}");
+        let display = Hotkeys::default().get(CaptureMode::Display);
         assert!(
-            text.contains("[hotkeys]\ndisplay = \"Ctrl+Alt+Shift+3\""),
+            text.contains(&format!("[hotkeys]\ndisplay = \"{display}\"")),
             "{text}"
         );
         assert!(!text.contains("save_directory ="), "{text}");
@@ -618,7 +619,7 @@ enabled = true
             ("save_directory = \"relative\"\n", "key save_directory"),
             ("file_name = \"a/b\"\n", "key file_name"),
             (
-                "[hotkeys]\nselection = \"Ctrl+Alt+Shift+3\"\n",
+                "[hotkeys]\ndisplay = \"Ctrl+Alt+Shift+3\"\nselection = \"Ctrl+Alt+Shift+3\"\n",
                 "key hotkeys",
             ),
         ] {

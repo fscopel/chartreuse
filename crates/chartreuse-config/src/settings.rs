@@ -465,7 +465,10 @@ mod tests {
 
     #[test]
     fn duplicate_hotkeys_are_rejected() {
-        let error = from_toml("[hotkeys]\nselection = \"Ctrl+Alt+Shift+3\"\n").unwrap_err();
+        let error = from_toml(
+            "[hotkeys]\ndisplay = \"Ctrl+Alt+Shift+3\"\nselection = \"Ctrl+Alt+Shift+3\"\n",
+        )
+        .unwrap_err();
         let message = error.message();
         assert!(
             message.contains(

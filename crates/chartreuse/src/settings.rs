@@ -1465,11 +1465,14 @@ mod tests {
     fn a_hotkey_another_mode_has_is_rejected_and_recording_goes_on() {
         let (mut app, fake, _temp) = app_with_file();
         send(&mut app, Message::Open);
+        send(&mut app, Message::Record(CaptureMode::Display));
+        press(&mut app, Code::KeyK, Held::LOGO);
+        let before = app.config.hotkeys;
 
         send(&mut app, Message::Record(CaptureMode::Selection));
-        press(&mut app, Code::Digit3, Held::CTRL | Held::ALT | Held::SHIFT);
+        press(&mut app, Code::KeyK, Held::LOGO);
 
-        assert_eq!(app.config.hotkeys, Hotkeys::default());
+        assert_eq!(app.config.hotkeys, before);
         assert_eq!(recording(&app), Some(CaptureMode::Selection));
         let line = hotkey_line(&app, CaptureMode::Selection);
         assert!(
@@ -1477,11 +1480,11 @@ mod tests {
                 if problem.ends_with("is already the hotkey to capture display")),
             "{line:?}"
         );
-        assert!(!file(&app).path.exists(), "nothing saved");
+        assert_eq!(on_disk(&app).hotkeys, before, "nothing saved");
 
         press(&mut app, Code::Escape, Held::empty());
         assert_eq!(hotkey_line(&app, CaptureMode::Selection), None, "cancelled");
-        assert_eq!(fake.registered_hotkeys(), defaults());
+        assert_eq!(fake.registered_hotkeys(), hotkeys::bindings(&before));
     }
 
     #[test]
@@ -1528,10 +1531,11 @@ mod tests {
         assert_eq!(on_disk(&app).hotkeys, Hotkeys::default());
 
         // Display's default, given to Selection while Display had another.
-        send(&mut app, Message::Record(CaptureMode::Display));
-        press(&mut app, Code::KeyK, Held::LOGO);
-        send(&mut app, Message::Record(CaptureMode::Selection));
-        press(&mut app, Code::Digit3, Held::CTRL | Held::ALT | Held::SHIFT);
+        let default = Hotkeys::default().get(CaptureMode::Display);
+        edit(
+            &mut app,
+            &format!("[hotkeys]\ndisplay = \"Super+K\"\nselection = \"{default}\"\n"),
+        );
         send(&mut app, Message::DefaultHotkey(CaptureMode::Display));
         assert_eq!(
             app.config.hotkeys.get(CaptureMode::Display),
@@ -1611,7 +1615,7 @@ mod tests {
             hotkeys::bindings(&app.config.hotkeys)
         );
         assert!(fake.press_hotkey(hotkey("Super+Shift+F1")));
-        assert!(!fake.press_hotkey(hotkey("Ctrl+Alt+Shift+3")));
+        assert!(!fake.press_hotkey(Hotkeys::default().get(CaptureMode::Display)));
         assert_eq!(alerts(&app), 0);
         assert!(!changed(file(&app)), "loading is not a change");
     }
