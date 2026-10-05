@@ -85,6 +85,7 @@ impl View {
         let corner = centered_origin(canvas, size, scale) + pan;
         Viewport {
             scale,
+            axes: CanvasVector::new(scale, scale),
             origin: CanvasPoint::new(
                 corner.x - area.min().x * scale,
                 corner.y - area.min().y * scale,
@@ -185,18 +186,32 @@ fn clamp_pan(pan: CanvasVector, canvas: CanvasSize, image: Size, scale: f32) -> 
 }
 
 /// The mapping between canvas and document coordinates:
-/// `canvas = origin + document × scale`.
+/// `canvas = origin + document × axes`, per axis. A view's mapping scales
+/// both axes alike.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
+    /// Canvas pixels per document unit of length: the geometric mean of
+    /// `axes`.
     scale: f32,
+    /// Canvas pixels per document unit along each axis.
+    axes: CanvasVector,
     origin: CanvasPoint,
 }
 
 impl Viewport {
-    /// Canvas pixels per document unit.
+    /// Canvas pixels per document unit of length (stroke widths, font
+    /// sizes, tolerances): the geometric mean of the [`axes`](Self::axes),
+    /// which is the scale itself where they agree.
     #[must_use]
     pub const fn scale(&self) -> f32 {
         self.scale
+    }
+
+    /// Canvas pixels per document unit horizontally (`x`) and vertically
+    /// (`y`).
+    #[must_use]
+    pub const fn axes(&self) -> CanvasVector {
+        self.axes
     }
 
     /// Where the document's origin (the image's top-left corner) is on the
@@ -210,8 +225,8 @@ impl Viewport {
     #[must_use]
     pub fn to_document(&self, point: CanvasPoint) -> Point {
         Point::new(
-            (point.x - self.origin.x) / self.scale,
-            (point.y - self.origin.y) / self.scale,
+            (point.x - self.origin.x) / self.axes.x,
+            (point.y - self.origin.y) / self.axes.y,
         )
     }
 
@@ -219,8 +234,8 @@ impl Viewport {
     #[must_use]
     pub fn to_canvas(&self, point: Point) -> CanvasPoint {
         CanvasPoint::new(
-            self.origin.x + point.x * self.scale,
-            self.origin.y + point.y * self.scale,
+            self.origin.x + point.x * self.axes.x,
+            self.origin.y + point.y * self.axes.y,
         )
     }
 
@@ -237,7 +252,7 @@ impl Viewport {
         let min = self.to_canvas(rect.min());
         Rectangle::new(
             min,
-            CanvasSize::new(rect.width() * self.scale, rect.height() * self.scale),
+            CanvasSize::new(rect.width() * self.axes.x, rect.height() * self.axes.y),
         )
     }
 }

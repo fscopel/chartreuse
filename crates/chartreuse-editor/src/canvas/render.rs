@@ -486,13 +486,13 @@ impl DeviceBlock {
     /// Maps document coordinates onto the block's pixels, the document
     /// being on the canvas where `viewport` puts it.
     fn transform(&self, viewport: &Viewport) -> Transform {
-        let scale = viewport.scale() * self.scale_factor;
+        let axes = viewport.axes() * self.scale_factor;
         let origin = viewport.origin();
         Transform::from_row(
-            scale,
+            axes.x,
             0.0,
             0.0,
-            scale,
+            axes.y,
             origin.x * self.scale_factor - self.x,
             origin.y * self.scale_factor - self.y,
         )
