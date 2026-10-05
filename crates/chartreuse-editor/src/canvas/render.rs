@@ -15,7 +15,7 @@ use crate::font;
 use crate::model::{
     highlighter, PathSegment, Point, Polyline, Rect, Shape, Size, StepMarker, Style, Text, Vector,
 };
-use crate::tools::HANDLE_SIZE;
+use crate::tools::{resize_handles, HANDLE_SIZE};
 
 /// How far right and down raster images are nudged, in canvas pixels. iced's
 /// tiny-skia renderer places an image at its position truncated to a whole
@@ -332,6 +332,21 @@ pub fn crop(frame: &mut Frame, viewport: &Viewport, image: Rectangle, crop: Rect
     );
     for corner in crop.corners() {
         handle(frame, viewport.to_canvas(corner), accent);
+    }
+}
+
+/// The resize tool's chrome for `bounds`, its frame (document units): an
+/// `accent` outline around it and a [`handle`] at each of the tool's
+/// [handles](resize_handles).
+pub fn resize(frame: &mut Frame, viewport: &Viewport, bounds: Rect, accent: Color) {
+    let outline = viewport.to_canvas_rect(bounds);
+    frame.stroke_rectangle(
+        outline.position(),
+        outline.size(),
+        Stroke::default().with_width(1.5).with_color(accent),
+    );
+    for point in resize_handles(bounds) {
+        handle(frame, viewport.to_canvas(point), accent);
     }
 }
 

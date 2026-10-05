@@ -1026,4 +1026,64 @@ mod canvas {
             "worst channel difference {worst}, {differ} pixels differ by more than 2"
         );
     }
+
+    #[test]
+    fn dragging_a_resize_handle_previews_what_applying_shows() {
+        // A smooth gradient down the image, so the stretched base and the
+        // resampled one agree, and (as above) the renderer's one-pixel shift
+        // of the base doesn't show. Nothing casts a shadow: shadows are
+        // previewed stretched, not recomputed.
+        let mut editor = Editor::new(Image::from_fn(PhysicalSize::new(400, 300), |_, y| {
+            Rgba8::rgb(120, (255 - y * 3 / 4) as u8, (40 + y / 2) as u8)
+        }));
+        stroke(
+            &mut editor,
+            ToolKind::Highlighter,
+            Rgba8::rgb(10, 132, 255),
+            6.0,
+            &wave(20.0, 380.0, 120.0, 20.0),
+        );
+        editor.update(Message::Color(Rgba8::rgb(255, 59, 48)));
+        editor.update(Message::FontSize(40.0));
+        editor.update(Message::Tool(ToolKind::Text));
+        click(&mut editor, at(120.0, 180.0));
+        type_text(&mut editor, "Half");
+        named(&mut editor, iced::keyboard::key::Named::Escape);
+        deselect(&mut editor);
+
+        // Dragging the bottom-right handle halfway previews the image at
+        // 200 × 150 in its top-left quarter, the backdrop around it.
+        editor.update(Message::Tool(ToolKind::Resize));
+        press(&mut editor, at(400.0, 300.0), 1);
+        input(
+            &mut editor,
+            InputKind::Move {
+                position: at(200.0, 150.0),
+            },
+        );
+        // Inside the frame's outline and handles, which the preview draws
+        // over its edges.
+        let inside = |image: &Image, x: i32, y: i32| {
+            chartreuse_imaging::crop(image, PhysicalRect::new(x + 6, y + 6, 188, 138)).unwrap()
+        };
+        let (screenshot, _) = screenshot(&editor);
+        let backdrop = screenshot.pixel(0, 0).unwrap();
+        assert_eq!(screenshot.pixel(300, 250).unwrap(), backdrop);
+        let preview = inside(&screenshot, 16, 16);
+        input(
+            &mut editor,
+            InputKind::Release {
+                position: at(200.0, 150.0),
+            },
+        );
+        named(&mut editor, iced::keyboard::key::Named::Enter);
+        assert_eq!(editor.document().export_size(), PhysicalSize::new(200, 150));
+
+        let applied = inside(&canvas_image(&editor), 0, 0);
+        let (worst, differ) = compare(&applied, &preview, applied.width());
+        assert!(
+            worst <= 16 && differ <= 8,
+            "worst channel difference {worst}, {differ} pixels differ by more than 2"
+        );
+    }
 }

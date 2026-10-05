@@ -37,6 +37,19 @@
 //! the crop can be changed: the part outside the crop being edited is dimmed,
 //! and the crop has an outline and a handle at each corner.
 //!
+//! # Resize
+//!
+//! While the resize tool is active the canvas previews the size it would
+//! apply: the area drawn stretched (per axis, through
+//! [`Viewport::stretched`]) to fill the tool's frame, with the backdrop
+//! around the frame, and an outline and handles on it. Nothing is
+//! resampled or recomputed for the preview: the base image, shadows, and
+//! blur regions are the images the canvas already has, drawn larger or
+//! smaller, and shapes and text are drawn as when zooming, their lengths
+//! scaled by the geometric mean of the two axes' scales as a resize scales
+//! them. Where the axes differ, a shadow, blur region, or the shape of a
+//! stroke's end can differ a little from what applying makes.
+//!
 //! The base, shadow, and annotation layers keep their geometry and redraw
 //! only when what they show changes: the image, the view, the canvas size,
 //! the theme, the window's scale factor (for highlighters), a run's
@@ -637,6 +650,17 @@ impl Scene<'_> {
         }
     }
 
+    /// The mapping the base image and annotations are drawn with: the
+    /// editor's, [stretched](Viewport::stretched) to fill the frame of a
+    /// resize being previewed.
+    fn content_viewport(&self, size: Size) -> Viewport {
+        let viewport = self.editor.viewport(size);
+        match self.editor.active_tool().preview() {
+            Preview::Resize(frame) => viewport.stretched(self.editor.area(), frame),
+            _ => viewport,
+        }
+    }
+
     /// The annotation or text the active tool's gesture is making.
     fn draw_preview(&self, frame: &mut Frame, theme: &Theme) {
         let backdrop = backdrop(theme);
@@ -645,7 +669,11 @@ impl Scene<'_> {
         let raster = self.raster(frame.size(), clip);
         let preview = self.editor.active_tool().preview();
         match &preview {
-            Preview::None | Preview::Moved(..) | Preview::Reshaped(..) | Preview::Crop(_) => {}
+            Preview::None
+            | Preview::Moved(..)
+            | Preview::Reshaped(..)
+            | Preview::Crop(_)
+            | Preview::Resize(_) => {}
             Preview::New(shape) => frame.with_clip(clip, |frame| {
                 let style = self.editor.style();
                 if let Shape::Blur(region) = shape {
@@ -674,14 +702,16 @@ impl Scene<'_> {
 
     /// The backdrop around the area, covering whatever the layers below drew
     /// outside it, then the chrome: selection outlines and handles, the crop
-    /// being edited, a text edit's outline and caret.
+    /// or resize being edited, a text edit's outline and caret.
     fn draw_overlay(&self, frame: &mut Frame, theme: &Theme) {
         let viewport = self.editor.viewport(frame.size());
-        let area = viewport.to_canvas_rect(self.editor.area());
+        let area = self
+            .content_viewport(frame.size())
+            .to_canvas_rect(self.editor.area());
         render::mask(frame, area, backdrop(theme));
         let accent = theme.palette().primary;
         let preview = self.editor.active_tool().preview();
-        if !matches!(preview, Preview::Crop(_)) {
+        if !matches!(preview, Preview::Crop(_) | Preview::Resize(_)) {
             self.draw_selection(frame, &viewport, &preview, accent);
         }
         match &preview {
@@ -691,6 +721,7 @@ impl Scene<'_> {
                     render::crop(frame, &viewport, area, *crop, accent);
                 }
             }
+            Preview::Resize(bounds) => render::resize(frame, &viewport, *bounds, accent),
             Preview::Text(edit) => render::text_edit(
                 frame,
                 &viewport,
@@ -797,7 +828,7 @@ impl Program<Message> for Scene<'_> {
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
         let size = bounds.size();
-        let viewport = self.editor.viewport(size);
+        let viewport = self.content_viewport(size);
         let geometry = match &self.layer {
             Layer::Shadow(index) => {
                 let shadow = self.shadow(*index);

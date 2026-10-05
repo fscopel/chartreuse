@@ -255,6 +255,28 @@ impl Viewport {
             CanvasSize::new(rect.width() * self.axes.x, rect.height() * self.axes.y),
         )
     }
+
+    /// This mapping scaled per axis so that document rectangle `from` is
+    /// drawn where it draws `to`. Unchanged if `from` is empty.
+    #[must_use]
+    pub fn stretched(&self, from: Rect, to: Rect) -> Self {
+        if from.width() <= 0.0 || from.height() <= 0.0 {
+            return *self;
+        }
+        let axes = CanvasVector::new(
+            self.axes.x * to.width() / from.width(),
+            self.axes.y * to.height() / from.height(),
+        );
+        let corner = self.to_canvas(to.min());
+        Self {
+            scale: (axes.x * axes.y).sqrt(),
+            axes,
+            origin: CanvasPoint::new(
+                corner.x - from.min().x * axes.x,
+                corner.y - from.min().y * axes.y,
+            ),
+        }
+    }
 }
 
 #[cfg(test)]

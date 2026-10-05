@@ -65,7 +65,7 @@ pub use highlighter::HighlighterTool;
 pub use line::LineTool;
 pub use pen::PenTool;
 pub use rectangle::RectangleTool;
-pub use resize::{ResizeInput, ResizeTool, ResizeUnit};
+pub use resize::{resize_handles, ResizeInput, ResizeTool, ResizeUnit};
 pub use select::SelectTool;
 pub use step::StepTool;
 pub use text::{TextEdit, TextInput, TextTarget, TextTool};
@@ -300,6 +300,10 @@ pub enum Preview<'a> {
     /// The crop tool is active, editing this crop (`None`: the whole image).
     /// The canvas shows the whole image meanwhile.
     Crop(Option<Rect>),
+    /// The resize tool is active: the canvas shows the image (or its crop)
+    /// stretched to fill this frame (document coordinates), with the resize
+    /// tool's [handles](resize_handles) on it.
+    Resize(Rect),
 }
 
 /// An annotation tool: a state machine turning pointer events into commands
