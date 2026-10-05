@@ -497,12 +497,14 @@ fn status_bar<'a>(editor: &'a Editor, window: window::Id) -> Element<'a, AppMess
             action("Copy", Target::Copy, false),
             shortcut('C'),
             tooltip::Position::Top
-        ),
+        )
+        .style(container::bordered_box),
         tooltip(
             action("Save…", Target::Save, false),
             shortcut('S'),
             tooltip::Position::Top
-        ),
+        )
+        .style(container::bordered_box),
         action("Copy & Close", Target::Copy, true),
         action("Save & Close…", Target::Save, true),
     ]

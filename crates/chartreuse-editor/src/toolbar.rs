@@ -470,6 +470,7 @@ fn icon_button(
         text(hint),
         tooltip::Position::Bottom,
     )
+    .style(container::bordered_box)
     .into()
 }
 
