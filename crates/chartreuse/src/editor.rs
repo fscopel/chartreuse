@@ -53,7 +53,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chartreuse_core::flavor;
+use chartreuse_core::flavor::{self, Flavor};
 use chartreuse_core::geometry::{LogicalSize, PhysicalSize};
 use chartreuse_core::image::Image;
 use chartreuse_editor::canvas::{Input, InputKind, MARGIN};
@@ -362,6 +362,7 @@ fn open(app: &mut App, image: Image) -> Task<AppMessage> {
             size,
             min_size: Some(MIN_SIZE),
             position: window::Position::Centered,
+            icon: window_icon(),
             // Closing asks first, if the image is unsaved.
             exit_on_close_request: false,
             ..window::Settings::default()
@@ -400,6 +401,23 @@ fn open(app: &mut App, image: Image) -> Task<AppMessage> {
     open.discard()
         .chain(window::gain_focus(id))
         .chain(scale_factor)
+}
+
+/// The app icon in the build flavor's accent, shown at the left of the title
+/// bar on Windows and by X11 window managers (macOS windows have none, and
+/// Wayland compositors look up the icon themselves). The 32-pixel small icon:
+/// what the executable's icon holds at that size, sharp at 200% scale and
+/// halved at 100%.
+fn window_icon() -> Option<window::Icon> {
+    let png: &[u8] = match Flavor::CURRENT {
+        Flavor::Release => include_bytes!("../../../assets/icon/generated/tray-release-32.png"),
+        Flavor::Development => {
+            include_bytes!("../../../assets/icon/generated/tray-development-32.png")
+        }
+    };
+    window::icon::from_file_data(png, None)
+        .inspect_err(|error| tracing::warn!(%error, "could not load the window icon"))
+        .ok()
 }
 
 /// The primary display's size in points, if the displays can be listed.
@@ -534,6 +552,12 @@ mod tests {
             .collect();
         assert_eq!(opened.len(), 1, "one new editor window");
         opened[0]
+    }
+
+    #[test]
+    fn window_icon_decodes_to_the_32_pixel_app_icon() {
+        let (_, size) = window_icon().expect("the icon decodes").into_raw();
+        assert_eq!((size.width, size.height), (32, 32));
     }
 
     /// A test app whose saves go to a fresh temporary directory, with an
