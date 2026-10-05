@@ -8,8 +8,10 @@ use chartreuse_core::image::Image;
 pub fn argb32(image: &Image) -> Vec<u8> {
     image
         .pixels()
-        .chunks_exact(4)
-        .flat_map(|rgba| [rgba[3], rgba[0], rgba[1], rgba[2]])
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[r, g, b, a]| [a, r, g, b])
         .collect()
 }
 

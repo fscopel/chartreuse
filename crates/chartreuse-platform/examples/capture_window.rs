@@ -117,7 +117,7 @@ fn alpha_summary(image: &Image) -> String {
     let (w, h) = (size.width - 1, size.height - 1);
     let alpha = |x, y| image.pixel(x, y).map_or(0, |pixel| pixel.a);
     let (mut opaque, mut translucent, mut transparent) = (0_usize, 0_usize, 0_usize);
-    for pixel in image.pixels().chunks_exact(4) {
+    for pixel in image.pixels().as_chunks::<4>().0 {
         match pixel[3] {
             0 => transparent += 1,
             255 => opaque += 1,

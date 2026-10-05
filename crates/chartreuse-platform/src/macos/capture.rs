@@ -360,7 +360,12 @@ fn trim_transparent_edges(image: &Image) -> Option<Image> {
     if width == 0 {
         return None;
     }
-    let visible = |row: &[u8]| row.chunks_exact(4).position(|pixel| pixel[3] != 0);
+    let visible = |row: &[u8]| {
+        row.as_chunks::<4>()
+            .0
+            .iter()
+            .position(|pixel| pixel[3] != 0)
+    };
     let rows: Vec<&[u8]> = image.pixels().chunks_exact(width * 4).collect();
     let top = rows.iter().position(|row| visible(row).is_some())?;
     let bottom = rows.iter().rposition(|row| visible(row).is_some())?;
@@ -369,7 +374,9 @@ fn trim_transparent_edges(image: &Image) -> Option<Image> {
         if let Some(first) = visible(row) {
             left = left.min(first);
             let last = row
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .rposition(|pixel| pixel[3] != 0)
                 .unwrap_or(first);
             right = right.max(last);
@@ -438,7 +445,12 @@ fn all_blank<'a>(images: impl IntoIterator<Item = &'a Image>) -> bool {
 
 /// Whether every pixel of `image` has alpha 0.
 fn is_transparent(image: &Image) -> bool {
-    image.pixels().chunks_exact(4).all(|pixel| pixel[3] == 0)
+    image
+        .pixels()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|pixel| pixel[3] == 0)
 }
 
 /// Counts the on-screen windows the window server reports for processes other

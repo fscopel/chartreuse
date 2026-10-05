@@ -435,8 +435,10 @@ impl Flattener {
         for (dst, src) in self
             .image
             .pixels_mut()
-            .chunks_exact_mut(4)
-            .zip(layer.chunks_exact_mut(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(layer.as_chunks_mut::<4>().0)
         {
             if src[3] != 0 {
                 source_over(dst, src);

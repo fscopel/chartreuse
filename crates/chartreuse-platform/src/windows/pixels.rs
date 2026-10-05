@@ -44,8 +44,7 @@ pub(super) fn image_from_bgra(
     }
     let mut rgba = Vec::with_capacity(row_bytes * size.height as usize);
     for row in bgra.chunks(row_pitch.max(1)).take(size.height as usize) {
-        for pixel in row[..row_bytes].chunks_exact(4) {
-            let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+        for &[b, g, r, a] in row[..row_bytes].as_chunks::<4>().0 {
             rgba.extend_from_slice(&match alpha {
                 Alpha::Opaque => [r, g, b, 255],
                 Alpha::Premultiplied => unpremultiply([r, g, b, a]),

@@ -101,7 +101,7 @@ pub fn blur(image: &mut Image, region: PhysicalRect, radius: u32) {
     let mut buffer: Vec<[u16; 4]> = Vec::with_capacity(width * height);
     for y in 0..height {
         let row = &pixels[(top + y) * stride + left * 4..][..width * 4];
-        buffer.extend(row.chunks_exact(4).map(|p| {
+        buffer.extend(row.as_chunks::<4>().0.iter().map(|p| {
             let alpha = u16::from(p[3]);
             [
                 u16::from(p[0]) * alpha,
@@ -133,8 +133,13 @@ pub fn blur(image: &mut Image, region: PhysicalRect, radius: u32) {
 
     for y in 0..height {
         let row = &mut pixels[(top + y) * stride + left * 4..][..width * 4];
-        for (out, value) in row.chunks_exact_mut(4).zip(&buffer[y * width..][..width]) {
-            out.copy_from_slice(&unpremultiply_scaled(*value));
+        for (out, value) in row
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(&buffer[y * width..][..width])
+        {
+            *out = unpremultiply_scaled(*value);
         }
     }
 }

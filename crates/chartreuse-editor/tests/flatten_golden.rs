@@ -144,8 +144,10 @@ fn check(name: &str, image: &Image) {
     if expected.size() == image.size() {
         for (a, b) in expected
             .pixels()
-            .chunks_exact(4)
-            .zip(image.pixels().chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(image.pixels().as_chunks::<4>().0)
         {
             let diff = a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
             worst = worst.max(diff);

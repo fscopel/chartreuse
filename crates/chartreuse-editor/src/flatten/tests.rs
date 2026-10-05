@@ -313,8 +313,10 @@ fn a_step_marker_is_a_disc_with_its_derived_number_on_it() {
     let count = |image: &Image| {
         image
             .pixels()
-            .chunks_exact(4)
-            .filter(|p| *p == white.to_array())
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|&&p| p == white.to_array())
             .count()
     };
     assert!(count(&one) < count(&result), "a 1 has less ink than a 2");

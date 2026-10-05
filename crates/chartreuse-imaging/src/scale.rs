@@ -37,7 +37,9 @@ pub fn resize(image: &Image, size: PhysicalSize) -> Result<Image> {
     let (width, height) = (image.width(), image.height());
     let pixels = if image
         .pixels()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .all(|pixel| pixel[3] == u8::MAX)
     {
         let source = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, image.pixels())
@@ -46,10 +48,11 @@ pub fn resize(image: &Image, size: PhysicalSize) -> Result<Image> {
     } else {
         let premultiplied = image
             .pixels()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|pixel| {
-                let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]]
-                    .map(|channel| f32::from(channel) / 255.0);
+                let [r, g, b, a] = pixel.map(|channel| f32::from(channel) / 255.0);
                 [r * a, g * a, b * a, a]
             })
             .collect();

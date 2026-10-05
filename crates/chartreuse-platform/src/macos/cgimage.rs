@@ -214,7 +214,7 @@ fn rgba8_from_packed(size: PhysicalSize, layout: PackedLayout, data: &[u8]) -> R
     let mut pixels = Vec::with_capacity(row_len * height);
     for row in 0..height {
         let start = row * layout.bytes_per_row;
-        for pixel in data[start..start + row_len].chunks_exact(4) {
+        for pixel in data[start..start + row_len].as_chunks::<4>().0 {
             let mut rgba = [pixel[r], pixel[g], pixel[b], pixel[a]];
             match layout.alpha {
                 AlphaMode::Straight => {}
@@ -231,7 +231,7 @@ fn rgba8_from_packed(size: PhysicalSize, layout: PackedLayout, data: &[u8]) -> R
 /// to nearest. Fully transparent pixels become transparent black; color values
 /// above their alpha (invalid premultiplied data) saturate at 255.
 fn unpremultiply(pixels: &mut [u8]) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let alpha = u16::from(pixel[3]);
         match alpha {
             255 => {}
@@ -317,7 +317,7 @@ mod tests {
         .unwrap();
         let data = CGBitmapContextGetData(Some(&context)).cast::<u8>();
         let stride = CGBitmapContextGetBytesPerRow(Some(&context));
-        for (row, bytes) in premultiplied.chunks_exact(8).enumerate() {
+        for (row, bytes) in premultiplied.as_chunks::<8>().0.iter().enumerate() {
             // SAFETY: the context's buffer has 2 rows of `stride` ≥ 8 bytes.
             unsafe {
                 data.add(row * stride)

@@ -373,8 +373,10 @@ mod tests {
         let premultiplied = |p: &[u8], i: usize| u32::from(p[i]) * u32::from(p[3]) / 255;
         a.size == b.size
             && a.rgba
-                .chunks_exact(4)
-                .zip(b.rgba.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(b.rgba.as_chunks::<4>().0)
                 .all(|(p, q)| {
                     p[3].abs_diff(q[3]) <= 2
                         && (0..3).all(|i| premultiplied(p, i).abs_diff(premultiplied(q, i)) <= 2)
@@ -553,7 +555,7 @@ mod tests {
         for scale in [1, 2] {
             let size = STATUS_ITEM_POINTS * scale;
             let image = render_status_item(size).unwrap();
-            let mut pixels = image.rgba.chunks_exact(4);
+            let mut pixels = image.rgba.as_chunks::<4>().0.iter();
             assert!(
                 pixels.all(|p| p[3] < 4 || (p[..3] == [0, 0, 0] && p[3] > 251)),
                 "{size}: black, with every edge on a pixel boundary"

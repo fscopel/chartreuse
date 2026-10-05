@@ -304,8 +304,11 @@ fn fill(image: &mut Image, rect: PhysicalRect, color: Rgba8) {
         .skip(y)
         .take(rect.size.height as usize)
     {
-        for out in row[x * 4..(x + rect.size.width as usize) * 4].chunks_exact_mut(4) {
-            out.copy_from_slice(&pixel);
+        for out in row[x * 4..(x + rect.size.width as usize) * 4]
+            .as_chunks_mut::<4>()
+            .0
+        {
+            *out = pixel;
         }
     }
 }

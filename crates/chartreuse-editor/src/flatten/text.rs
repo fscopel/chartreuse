@@ -93,9 +93,9 @@ fn premultiply<'a>(
             }
         }
         SwashContent::Color => {
-            for rgba in image.data.chunks_exact(4) {
-                let pixel = ColorU8::from_rgba(rgba[0], rgba[1], rgba[2], rgba[3]).premultiply();
-                pixels.extend_from_slice(&[pixel.red(), pixel.green(), pixel.blue(), rgba[3]]);
+            for &[r, g, b, a] in image.data.as_chunks::<4>().0 {
+                let pixel = ColorU8::from_rgba(r, g, b, a).premultiply();
+                pixels.extend_from_slice(&[pixel.red(), pixel.green(), pixel.blue(), a]);
             }
         }
         SwashContent::SubpixelMask => return None,

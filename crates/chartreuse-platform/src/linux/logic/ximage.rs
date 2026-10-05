@@ -125,13 +125,9 @@ pub fn to_image(size: PhysicalSize, format: &PixelFormat, data: &[u8]) -> Result
         let row = &row[..width * bytes_per_pixel];
         if common_bgrx {
             // The layout of nearly every X server: B, G, R, then X or alpha.
-            for pixel in row.chunks_exact(4) {
-                let alpha = if format.alpha_mask == 0 {
-                    u8::MAX
-                } else {
-                    pixel[3]
-                };
-                pixels.extend_from_slice(&straight([pixel[2], pixel[1], pixel[0]], alpha));
+            for &[b, g, r, x] in row.as_chunks::<4>().0 {
+                let alpha = if format.alpha_mask == 0 { u8::MAX } else { x };
+                pixels.extend_from_slice(&straight([r, g, b], alpha));
             }
         } else {
             for unit in row.chunks_exact(bytes_per_pixel) {

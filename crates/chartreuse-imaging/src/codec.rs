@@ -246,7 +246,9 @@ pub fn encode(image: &Image, format: Format) -> Result<Vec<u8>> {
 pub fn encode_jpeg(image: &Image, quality: u8) -> Result<Vec<u8>> {
     let rgb: Vec<u8> = image
         .pixels()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|px| {
             let alpha = u32::from(px[3]);
             // Straight alpha over white: c·a + 255·(1 − a), in 0..=255 units.
