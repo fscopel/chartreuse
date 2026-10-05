@@ -59,9 +59,12 @@ pub enum ResizeInput {
 ///   [frame](Self::frame), stretching the image and its annotations to fill
 ///   it, with a handle at each corner and edge of it. Dragging a handle
 ///   moves that corner or edge, the opposite one staying put, and sets the
-///   fields to the frame's size in whole pixels. With Keep proportions on, a
-///   corner moves along the frame's diagonal and an edge scales the other
-///   side too, about its middle. Neither side goes below 1 or above
+///   fields to the frame's size in whole pixels. A drag keeps the image's
+///   aspect ratio whether or not Keep proportions is on: a corner moves
+///   along the frame's diagonal and an edge scales the other side too,
+///   about its middle. Holding Shift frees it, so a corner follows the
+///   pointer and an edge moves alone; letting go of Shift mid-drag restores
+///   the aspect ratio at once. Neither side goes below 1 or above
 ///   [`Document::MAX_SIDE`] pixels.
 /// - Apply (or Enter) applies the size, if both sides are valid (1 to
 ///   [`Document::MAX_SIDE`] pixels) and the document can take it, and is
@@ -286,8 +289,9 @@ impl ResizeTool {
             });
     }
 
-    /// Moves the grabbed handle to follow the pointer at `at`.
-    fn drag_to(&mut self, at: Point) {
+    /// Moves the grabbed handle to follow the pointer at `at`, keeping the
+    /// image's aspect ratio unless `free`.
+    fn drag_to(&mut self, at: Point, free: bool) {
         let Some(gesture) = &self.gesture else {
             return;
         };
@@ -308,7 +312,7 @@ impl ResizeTool {
         let width = length(grip.x, to.x, from.min().x, from.max().x, from.width());
         let height = length(grip.y, to.y, from.min().y, from.max().y, from.height());
         let max = Document::MAX_SIDE as f32;
-        let (width, height) = if self.proportional {
+        let (width, height) = if !free {
             let factor = match (grip.x, grip.y) {
                 (0, _) => height / original_height,
                 (_, 0) => width / original_width,
@@ -425,9 +429,9 @@ impl Tool for ResizeTool {
     fn pointer(&mut self, pointer: Pointer, cx: &mut Context<'_>) {
         match pointer {
             Pointer::Press { at, .. } => self.press(at, cx),
-            Pointer::Move { at } => self.drag_to(at),
+            Pointer::Move { at } => self.drag_to(at, cx.shift),
             Pointer::Release { at } => {
-                self.drag_to(at);
+                self.drag_to(at, cx.shift);
                 self.gesture = None;
             }
         }
@@ -496,11 +500,15 @@ mod tests {
     use crate::model::Style;
 
     fn cx(document: &mut Document) -> Context<'_> {
+        shift_cx(document, false)
+    }
+
+    fn shift_cx(document: &mut Document, shift: bool) -> Context<'_> {
         Context {
             document,
             style: Style::default(),
             pixel: 1.0,
-            shift: false,
+            shift,
         }
     }
 
@@ -516,9 +524,16 @@ mod tests {
         Rect::from_corners(Point::new(ax, ay), Point::new(bx, by))
     }
 
-    /// Presses at `from`, moves to `to`, and (if `release`) lets go there.
-    fn drag(tool: &mut ResizeTool, document: &mut Document, from: Point, to: Point, release: bool) {
-        let mut cx = cx(document);
+    /// Presses at `from`, moves to `to`, and (if `release`) lets go there,
+    /// with Shift held if `shift`.
+    fn drag(
+        tool: &mut ResizeTool,
+        document: &mut Document,
+        (from, to): (Point, Point),
+        shift: bool,
+        release: bool,
+    ) {
+        let mut cx = shift_cx(document, shift);
         tool.pointer(
             Pointer::Press {
                 at: from,
@@ -628,8 +643,8 @@ mod tests {
         drag(
             &mut tool,
             &mut document,
-            p(403.0, 302.0),
-            p(203.0, 102.0),
+            (p(403.0, 302.0), p(203.0, 102.0)),
+            false,
             false,
         );
         assert!(tool.is_active());
@@ -644,7 +659,13 @@ mod tests {
             },
             &mut cx(&mut document),
         );
-        drag(&mut tool, &mut document, p(0.0, 0.0), p(500.0, 500.0), true);
+        drag(
+            &mut tool,
+            &mut document,
+            (p(0.0, 0.0), p(500.0, 500.0)),
+            false,
+            true,
+        );
         assert!(!tool.is_active());
         assert_eq!(fields(&tool), ("1", "1"), "1.33 × 1 rounded");
         assert_eq!(tool.frame(), rect(175.0, 131.0, 176.0, 132.0));
@@ -659,8 +680,8 @@ mod tests {
         drag(
             &mut tool,
             &mut document,
-            p(0.0, 300.0),
-            p(-400.0, 600.0),
+            (p(0.0, 300.0), p(-400.0, 600.0)),
+            false,
             true,
         );
         assert_eq!(fields(&tool), ("200", "200"));
@@ -675,30 +696,32 @@ mod tests {
     }
 
     #[test]
-    fn dragging_an_edge_scales_the_other_side_about_its_middle_or_not_at_all() {
+    fn dragging_an_edge_scales_the_other_side_about_its_middle_unless_shift_is_held() {
         let mut document = document();
         let mut tool = ResizeTool::new(&document);
         let p = Point::new;
 
-        // The right edge, to 200 wide: 150 high, about the edge's middle.
+        // The right edge, to 200 wide: 150 high, about the edge's middle,
+        // with Keep proportions off too.
+        send(&mut tool, &mut document, ResizeInput::Proportional(false));
         drag(
             &mut tool,
             &mut document,
-            p(400.0, 150.0),
-            p(200.0, 0.0),
+            (p(400.0, 150.0), p(200.0, 0.0)),
+            false,
             true,
         );
         assert_eq!(fields(&tool), ("200", "150"));
         assert_eq!(tool.frame(), rect(0.0, 75.0, 200.0, 225.0));
 
-        // Without proportions, the top edge moves alone, and stops a pixel
-        // short of the bottom one.
-        send(&mut tool, &mut document, ResizeInput::Proportional(false));
+        // With Shift, the top edge moves alone, and stops a pixel short of
+        // the bottom one.
+        send(&mut tool, &mut document, ResizeInput::Proportional(true));
         drag(
             &mut tool,
             &mut document,
-            p(100.0, 75.0),
-            p(100.0, 25.4),
+            (p(100.0, 75.0), p(100.0, 25.4)),
+            true,
             true,
         );
         assert_eq!(fields(&tool), ("200", "200"), "199.6 rounded");
@@ -706,8 +729,8 @@ mod tests {
         drag(
             &mut tool,
             &mut document,
-            p(100.0, 25.0),
-            p(100.0, 900.0),
+            (p(100.0, 25.0), p(100.0, 900.0)),
+            true,
             true,
         );
         assert_eq!(fields(&tool), ("200", "1"));
@@ -717,12 +740,42 @@ mod tests {
         drag(
             &mut tool,
             &mut document,
-            p(100.0, 100.0),
-            p(10.0, 10.0),
+            (p(100.0, 100.0), p(10.0, 10.0)),
+            false,
             false,
         );
         assert!(!tool.is_active());
         assert_eq!(fields(&tool), ("200", "1"));
+    }
+
+    #[test]
+    fn shift_frees_a_corner_until_it_is_let_go() {
+        let mut document = document();
+        let mut tool = ResizeTool::new(&document);
+        let p = Point::new;
+
+        // The bottom-right corner follows the pointer with Shift held.
+        drag(
+            &mut tool,
+            &mut document,
+            (p(400.0, 300.0), p(200.0, 100.0)),
+            true,
+            false,
+        );
+        assert_eq!(fields(&tool), ("200", "100"));
+        assert_eq!(tool.frame(), rect(0.0, 0.0, 200.0, 100.0));
+
+        // Let go of mid-drag (the editor resends the pointer where it is):
+        // back on the diagonal, (200 × 400 + 100 × 300) / (400² + 300²) =
+        // 0.44.
+        tool.pointer(
+            Pointer::Move {
+                at: p(200.0, 100.0),
+            },
+            &mut shift_cx(&mut document, false),
+        );
+        assert_eq!(fields(&tool), ("176", "132"));
+        assert_eq!(tool.frame(), rect(0.0, 0.0, 176.0, 132.0));
     }
 
     #[test]
@@ -733,15 +786,15 @@ mod tests {
         drag(
             &mut tool,
             &mut document,
-            p(400.0, 300.0),
-            p(200.0, 150.0),
+            (p(400.0, 300.0), p(200.0, 150.0)),
+            false,
             true,
         );
         drag(
             &mut tool,
             &mut document,
-            p(0.0, 0.0),
-            p(-100.0, -100.0),
+            (p(0.0, 0.0), p(-100.0, -100.0)),
+            false,
             false,
         );
         assert_ne!(fields(&tool), ("200", "150"));

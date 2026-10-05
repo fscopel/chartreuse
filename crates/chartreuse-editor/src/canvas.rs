@@ -47,8 +47,9 @@
 //! blur regions are the images the canvas already has, drawn larger or
 //! smaller, and shapes and text are drawn as when zooming, their lengths
 //! scaled by the geometric mean of the two axes' scales as a resize scales
-//! them. Where the axes differ, a shadow, blur region, or the shape of a
-//! stroke's end can differ a little from what applying makes.
+//! them. Where the axes differ (a resize dragged with Shift), a shadow, blur
+//! region, text background, or the shape of a stroke's end can differ from
+//! what applying makes.
 //!
 //! The base, shadow, and annotation layers keep their geometry and redraw
 //! only when what they show changes: the image, the view, the canvas size,
