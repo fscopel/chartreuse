@@ -1,8 +1,9 @@
-//! The window registry: which module owns each open window.
+//! The window registry: which module owns each open window. Also the icon the
+//! app's windows show.
 
 use std::collections::HashMap;
 
-use chartreuse_core::flavor;
+use chartreuse_core::flavor::{self, Flavor};
 use iced::{window, Task};
 
 /// What a window is for, and therefore which module draws it and hears when it
@@ -85,11 +86,35 @@ impl WindowRegistry {
     }
 }
 
+/// The app icon in the build flavor's accent, shown at the left of the title
+/// bar on Windows and by X11 window managers (macOS windows have none, and
+/// Wayland compositors look up the icon themselves). The 32-pixel small icon:
+/// what the executable's icon holds at that size, sharp at 200% scale and
+/// halved at 100%.
+#[must_use]
+pub fn icon() -> Option<window::Icon> {
+    let png: &[u8] = match Flavor::CURRENT {
+        Flavor::Release => include_bytes!("../../../assets/icon/generated/tray-release-32.png"),
+        Flavor::Development => {
+            include_bytes!("../../../assets/icon/generated/tray-development-32.png")
+        }
+    };
+    window::icon::from_file_data(png, None)
+        .inspect_err(|error| tracing::warn!(%error, "could not load the window icon"))
+        .ok()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    #[test]
+    fn icon_decodes_to_the_32_pixel_app_icon() {
+        let (_, size) = icon().expect("the icon decodes").into_raw();
+        assert_eq!((size.width, size.height), (32, 32));
+    }
 
     #[test]
     fn windows_are_tracked_by_kind_until_removed() {
