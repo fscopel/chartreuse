@@ -117,6 +117,22 @@ mod tests {
     }
 
     #[test]
+    fn icon_is_in_the_build_flavors_accent() {
+        let (rgba, size) = icon().expect("the icon decodes").into_raw();
+        // The middle of the left edge: the icon's body, clear of the mark and
+        // of the sheen at the top.
+        let at = 4 * (size.width * (size.height / 2) + 1) as usize;
+        let body = &rgba[at..at + 3];
+        let accent = flavor::ACCENT;
+        // Rendering rounds the accent by a step.
+        let close = body
+            .iter()
+            .zip([accent.r, accent.g, accent.b])
+            .all(|(channel, accent)| channel.abs_diff(accent) <= 1);
+        assert!(close, "{body:?} is not {accent}");
+    }
+
+    #[test]
     fn windows_are_tracked_by_kind_until_removed() {
         let mut registry = WindowRegistry::default();
         let (editor, _) = registry.open(WindowKind::Editor, window::Settings::default());
