@@ -46,7 +46,7 @@ tests fail while it is stale.
 | `status-item-template.png`, `status-item-template@2x.png` | macOS status item: 18 points at 1x (18 px) and 2x (36 px), loaded as a template `NSImage` |
 | `app-release.ico`, `app-development.ico` | Windows app icon, embedded as the executable's icon resource by `crates/chartreuse/build.rs` (Explorer, the taskbar, and shortcuts show it); `app-release.ico` is also the installer's icon: PNG entries at 16, 24, 32, 48, 64, and 256 px |
 | `tray-release.ico`, `tray-development.ico` | Windows notification-area icon (`Shell_NotifyIcon`): PNG entries at 16, 20, 24, 32, 40, and 48 px, the small icon from 100% to 300% scale |
-| `tray-release-<size>.png`, `tray-development-<size>.png` | Linux tray (StatusNotifierItem `IconPixmap`): 16, 22, 24, 32, 48, and 64 px; the 32 px one is also the editor window's title bar icon on Windows and X11 (`window::Settings::icon`) |
+| `tray-release-<size>.png`, `tray-development-<size>.png` | Linux tray (StatusNotifierItem `IconPixmap`): 16, 22, 24, 32, 48, and 64 px; the 32 px one is also the title bar icon of the app's windows (editor, settings, alert, and permission guidance) on Windows and X11 (`window::Settings::icon`) |
 
 The tray icons are the app icon's body cropped edge to edge, without the drop shadow, so
 the mark stays legible at 16 pixels. They are full color on any panel background. Pick the

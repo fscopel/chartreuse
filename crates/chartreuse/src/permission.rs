@@ -41,7 +41,7 @@ use iced::{window, Element, Length, Size, Subscription, Task};
 
 use crate::alert::{self, Notice};
 use crate::app::{App, Message as AppMessage};
-use crate::windows::WindowKind;
+use crate::windows::{self, WindowKind};
 
 /// This feature's part of the app state ([`App::permission`]).
 #[derive(Debug, Default)]
@@ -157,6 +157,7 @@ fn open_guidance(app: &mut App, reason: Reason, focus: bool) -> Task<AppMessage>
             size: Size::new(480.0, 280.0),
             resizable: false,
             minimizable: false,
+            icon: windows::icon(),
             ..window::Settings::default()
         },
     );
@@ -393,6 +394,13 @@ mod tests {
         start(&mut app);
         assert_eq!(guidance_windows(&app), 1);
         assert!(app.permission.guidance.is_some());
+    }
+
+    #[test]
+    fn guidance_shows_the_app_icon() {
+        let (mut app, _fake) = App::for_test();
+        let open = show_guidance(&mut app);
+        assert_eq!(windows::opened_with_icon(open), [true]);
     }
 
     #[test]

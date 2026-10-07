@@ -122,7 +122,7 @@ use recorder::Recorded;
 use crate::alert::{self, Notice};
 use crate::app::{App, Message as AppMessage};
 use crate::hotkeys;
-use crate::windows::WindowKind;
+use crate::windows::{self, WindowKind};
 
 mod launch_at_login;
 mod recorder;
@@ -651,6 +651,7 @@ fn open(app: &mut App) -> Task<AppMessage> {
             resizable: false,
             minimizable: false,
             position: window::Position::Centered,
+            icon: windows::icon(),
             ..window::Settings::default()
         },
     );
@@ -1125,6 +1126,13 @@ mod tests {
         let reopened = settings_windows(&app);
         assert_eq!(reopened.len(), 1);
         assert_ne!(reopened, opened);
+    }
+
+    #[test]
+    fn the_window_shows_the_app_icon() {
+        let (mut app, _fake) = App::for_test();
+        let open = app.update(AppMessage::Settings(Message::Open));
+        assert_eq!(windows::opened_with_icon(open), [true]);
     }
 
     #[test]

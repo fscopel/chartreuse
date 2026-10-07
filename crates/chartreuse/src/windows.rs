@@ -104,6 +104,34 @@ pub fn icon() -> Option<window::Icon> {
         .ok()
 }
 
+/// For each window `task` opens, whether it shows [`icon`]. Each action is
+/// dropped as it arrives, so tasks waiting on its answer end.
+#[cfg(test)]
+pub fn opened_with_icon<T>(task: Task<T>) -> Vec<bool> {
+    use futures::executor::block_on;
+    use futures::StreamExt;
+    use iced_runtime::Action;
+
+    let app_icon = icon().expect("the icon decodes").into_raw();
+    iced_runtime::task::into_stream(task)
+        .map(|stream| {
+            block_on(
+                stream
+                    .filter_map(|action| {
+                        futures::future::ready(match action {
+                            Action::Window(iced_runtime::window::Action::Open(_, settings, _)) => {
+                                let icon = settings.icon.map(window::Icon::into_raw);
+                                Some(icon.as_ref() == Some(&app_icon))
+                            }
+                            _ => None,
+                        })
+                    })
+                    .collect(),
+            )
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;

@@ -10,7 +10,7 @@ use iced::widget::{button, column, container, row, space, text};
 use iced::{window, Element, Length, Size, Subscription, Task};
 
 use crate::app::{App, Message as AppMessage};
-use crate::windows::WindowKind;
+use crate::windows::{self, WindowKind};
 
 /// What an alert window says.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +76,7 @@ pub fn report_error(app: &mut App, notice: Notice) -> Task<AppMessage> {
             resizable: false,
             minimizable: false,
             level: window::Level::AlwaysOnTop,
+            icon: windows::icon(),
             ..window::Settings::default()
         },
     );
@@ -160,5 +161,12 @@ mod tests {
         let _ = app.update(AppMessage::WindowClosed(first));
         assert_eq!(app.windows.of_kind(WindowKind::Alert).count(), 1);
         assert!(!app.alert.notices.contains_key(&first));
+    }
+
+    #[test]
+    fn an_alert_shows_the_app_icon() {
+        let (mut app, _fake) = App::for_test();
+        let open = report_error(&mut app, Notice::new("First", "one"));
+        assert_eq!(windows::opened_with_icon(open), [true]);
     }
 }
